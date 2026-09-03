@@ -5,6 +5,7 @@ import { defaultColumnForStep } from '../lib/columnMapping.js';
 export const webhooksRouter = Router();
 
 webhooksRouter.post('/pco', async (req, res) => {
+  // 1. Immediately return 200 OK so PCO doesn't timeout
   res.status(200).send('ok');
 
   const events = req.body?.data ?? [];
@@ -20,23 +21,40 @@ webhooksRouter.post('/pco', async (req, res) => {
 
 async function handlePcoEvent(event) {
   const eventName = event?.attributes?.name;
-  const payload = event?.attributes?.payload;
+  let rawPayload = event?.attributes?.payload;
 
-  if (!payload || !eventName?.startsWith('workflow_card.')) {
+  // 2. Parse the payload if PCO sent it as a string
+  let payload;
+  if (typeof rawPayload === 'string') {
+    try {
+      payload = JSON.parse(rawPayload);
+    } catch (e) {
+      console.error(`Error parsing JSON payload for ${eventName}:`, e);
+      return;
+    }
+  } else {
+    payload = rawPayload;
+  }
+
+  // 3. Fix the filter to look for 'workflow_card' anywhere in the string
+  if (!payload || !eventName?.includes('workflow_card')) {
     return; 
   }
 
+  console.log(`Incoming PCO Webhook: ${eventName}`);
+
+  // 4. Use the exact event names PCO actually sends
   switch (eventName) {
-    case 'workflow_card.created':
-    case 'workflow_card.updated':
-    case 'workflow_card.completed':
-    case 'workflow_card.moved':
+    case 'people.v2.events.workflow_card.created':
+    case 'people.v2.events.workflow_card.updated':
+    case 'people.v2.events.workflow_card.step_ready':
       return upsertCardFromPayload(payload);
 
-    case 'workflow_card.deleted':
+    case 'people.v2.events.workflow_card.destroyed':
       return deleteCardFromPayload(payload);
 
     default:
+      console.log(`Unhandled card event type: ${eventName}`);
       return;
   }
 }
@@ -56,17 +74,20 @@ async function upsertCardFromPayload(payload) {
   }
 
   const workflowIncluded = included.find((i) => i.type === 'Workflow' && i.id === workflowPcoId);
+  
   const { data: workflow, error: workflowErr } = await supabase
     .from('pc_workflow_workflows')
     .upsert(
       {
         pco_id: workflowPcoId,
         name: workflowIncluded?.attributes?.name ?? `Workflow ${workflowPcoId}`,
+        is_active: true // Ensure active status is set
       },
       { onConflict: 'pco_id', ignoreDuplicates: false }
     )
     .select()
     .single();
+    
   if (workflowErr) throw workflowErr;
 
   let stepRowId = null;
@@ -126,6 +147,8 @@ async function upsertCardFromPayload(payload) {
     { onConflict: 'pco_id', ignoreDuplicates: false }
   );
   if (cardErr) throw cardErr;
+  
+  console.log(`Successfully wrote card ${card.id} to Supabase.`);
 }
 
 async function deleteCardFromPayload(payload) {
@@ -133,4 +156,5 @@ async function deleteCardFromPayload(payload) {
   if (!cardPcoId) return;
   const { error } = await supabase.from('pc_workflow_cards').delete().eq('pco_id', cardPcoId);
   if (error) throw error;
+  console.log(`Successfully deleted card ${cardPcoId} from Supabase.`);
 }
