@@ -36,14 +36,23 @@ export function useRealtimeBoard(_boardId) {
 
     loadInitial();
 
+    // Open a single Realtime channel and attach listeners for all three tables
     const channel = supabase
-      .channel('pc-cards-realtime')
+      .channel('pc-board-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'pc_workflow_cards' },
-        (payload) => {
-          setCards((current) => applyCardChange(current, payload));
-        }
+        (payload) => setCards((current) => applyDatabaseChange(current, payload))
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pc_workflow_workflows' },
+        (payload) => setWorkflows((current) => applyDatabaseChange(current, payload))
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pc_workflow_steps' },
+        (payload) => setSteps((current) => applyDatabaseChange(current, payload))
       )
       .subscribe();
 
@@ -58,19 +67,20 @@ export function useRealtimeBoard(_boardId) {
   return { workflows, steps, cards, loading, error };
 }
 
-function applyCardChange(current, payload) {
+// Unified function to handle inserts, updates, and deletes for any table array
+function applyDatabaseChange(current, payload) {
   switch (payload.eventType) {
     case 'INSERT':
-      if (current.some((c) => c.id === payload.new.id)) {
-        return current.map((c) => (c.id === payload.new.id ? payload.new : c));
+      if (current.some((item) => item.id === payload.new.id)) {
+        return current.map((item) => (item.id === payload.new.id ? payload.new : item));
       }
       return [...current, payload.new];
 
     case 'UPDATE':
-      return current.map((c) => (c.id === payload.new.id ? payload.new : c));
+      return current.map((item) => (item.id === payload.new.id ? payload.new : item));
 
     case 'DELETE':
-      return current.filter((c) => c.id !== payload.old.id);
+      return current.filter((item) => item.id !== payload.old.id);
 
     default:
       return current;
