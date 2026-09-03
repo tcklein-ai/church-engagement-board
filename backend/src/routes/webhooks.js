@@ -42,24 +42,42 @@ async function handlePcoEvent(event) {
     catch (e) { return; }
   } else { payload = rawPayload; }
 
-  if (!payload || !eventName?.includes('workflow_card')) return; 
+  if (!payload) return; 
 
   switch (eventName) {
+    // --- CARD EVENTS ---
     case 'people.v2.events.workflow_card.created':
     case 'people.v2.events.workflow_card.updated':
     case 'people.v2.events.workflow_card.step_ready':
       return upsertCardFromPayload(payload);
     case 'people.v2.events.workflow_card.destroyed':
       return deleteCardFromPayload(payload);
+      
+    // --- WORKFLOW STRUCTURE EVENTS ---
+    case 'people.v2.events.workflow.created':
+    case 'people.v2.events.workflow.updated':
+      return upsertWorkflowFromPayload(payload);
+    case 'people.v2.events.workflow.destroyed':
+      return deleteWorkflowFromPayload(payload);
+      
+    // --- STEP STRUCTURE EVENTS ---
+    case 'people.v2.events.workflow_step.created':
+    case 'people.v2.events.workflow_step.updated':
+      return upsertStepFromPayload(payload);
+    case 'people.v2.events.workflow_step.destroyed':
+      return deleteStepFromPayload(payload);
+      
     default:
       return;
   }
 }
 
+// ---------------------------------------------------------
+// CARD HANDLERS
+// ---------------------------------------------------------
+
 async function upsertCardFromPayload(payload) {
   const card = payload.data;
-  
-  // Extract IDs from PCO's relationship payload
   const workflowPcoId = card.relationships?.workflow?.data?.id;
   const stepPcoId = card.relationships?.current_step?.data?.id ?? card.relationships?.step?.data?.id;
   const personPcoId = card.relationships?.person?.data?.id;
@@ -67,7 +85,6 @@ async function upsertCardFromPayload(payload) {
 
   if (!workflowPcoId) throw new Error(`Payload missing workflow relationship`);
 
-  // JIT SYNC: Find Workflow or fetch from PCO if missing
   let { data: workflow } = await supabase.from('pc_workflow_workflows').select('*').eq('pco_id', workflowPcoId).maybeSingle();
   if (!workflow) {
     const pcoWf = await fetchPco(`/workflows/${workflowPcoId}`);
@@ -80,7 +97,6 @@ async function upsertCardFromPayload(payload) {
     workflow = newWf;
   }
 
-  // JIT SYNC: Find Step or fetch from PCO if missing
   let stepRowId = null;
   let boardColumn = 'new';
   if (stepPcoId) {
@@ -109,7 +125,6 @@ async function upsertCardFromPayload(payload) {
     boardColumn = 'completed';
   }
 
-  // JIT SYNC: Fetch real Person Name
   let personName = 'Unknown';
   let personAvatar = null;
   if (personPcoId) {
@@ -120,7 +135,6 @@ async function upsertCardFromPayload(payload) {
     }
   }
 
-  // JIT SYNC: Fetch real Assignee Name
   let assigneeName = null;
   if (assigneePcoId) {
     const pcoAssignee = await fetchPco(`/people/${assigneePcoId}`);
@@ -129,7 +143,6 @@ async function upsertCardFromPayload(payload) {
     }
   }
 
-  // Insert the Card with actual data
   const { error: cardErr } = await supabase.from('pc_workflow_cards').upsert({
     pco_id: card.id,
     workflow_id: workflow.id,
@@ -152,4 +165,57 @@ async function deleteCardFromPayload(payload) {
   const cardPcoId = payload.data?.id;
   if (!cardPcoId) return;
   await supabase.from('pc_workflow_cards').delete().eq('pco_id', cardPcoId);
+}
+
+// ---------------------------------------------------------
+// WORKFLOW STRUCTURE HANDLERS
+// ---------------------------------------------------------
+
+async function upsertWorkflowFromPayload(payload) {
+  const wf = payload.data;
+  const { error } = await supabase.from('pc_workflow_workflows').upsert({
+    pco_id: wf.id,
+    name: wf.attributes?.name ?? `Workflow ${wf.id}`,
+    is_active: true
+  }, { onConflict: 'pco_id' });
+  if (error) throw error;
+}
+
+async function deleteWorkflowFromPayload(payload) {
+  const wfId = payload.data?.id;
+  if (!wfId) return;
+  await supabase.from('pc_workflow_workflows').delete().eq('pco_id', wfId);
+}
+
+// ---------------------------------------------------------
+// STEP STRUCTURE HANDLERS
+// ---------------------------------------------------------
+
+async function upsertStepFromPayload(payload) {
+  const step = payload.data;
+  const workflowPcoId = step.relationships?.workflow?.data?.id;
+  if (!workflowPcoId) return;
+
+  const { data: dbWf } = await supabase.from('pc_workflow_workflows').select('id').eq('pco_id', workflowPcoId).maybeSingle();
+  if (!dbWf) return; 
+
+  const stepName = step.attributes?.name ?? `Step ${step.id}`;
+  const stepPosition = step.attributes?.sequence ?? 0;
+  const boardColumn = defaultColumnForStep({ name: stepName, position: stepPosition });
+
+  const { error } = await supabase.from('pc_workflow_steps').upsert({
+    workflow_id: dbWf.id,
+    pco_id: step.id,
+    name: stepName,
+    position: stepPosition,
+    board_column: boardColumn
+  }, { onConflict: 'workflow_id, pco_id' });
+  
+  if (error) throw error;
+}
+
+async function deleteStepFromPayload(payload) {
+  const stepId = payload.data?.id;
+  if (!stepId) return;
+  await supabase.from('pc_workflow_steps').delete().eq('pco_id', stepId);
 }
