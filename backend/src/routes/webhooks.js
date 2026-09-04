@@ -4,7 +4,6 @@ import { defaultColumnForStep } from '../lib/columnMapping.js';
 
 export const webhooksRouter = Router();
 
-// Helper function to fetch data directly from PCO API
 async function fetchPco(endpoint) {
   const authHeader = 'Basic ' + Buffer.from(`${process.env.PCO_APP_ID}:${process.env.PCO_SECRET}`).toString('base64');
   const url = `https://api.planningcenteronline.com/people/v2${endpoint}`;
@@ -66,6 +65,10 @@ async function handlePcoEvent(event) {
       return upsertStepFromPayload(payload);
     case 'people.v2.events.workflow_step.destroyed':
       return deleteStepFromPayload(payload);
+
+    // --- PERSON PROFILE EVENTS ---
+    case 'people.v2.events.person.updated':
+      return updatePersonFromPayload(payload);
       
     default:
       return;
@@ -148,8 +151,10 @@ async function upsertCardFromPayload(payload) {
     workflow_id: workflow.id,
     step_id: stepRowId,
     board_column: boardColumn,
+    person_pco_id: personPcoId,
     person_name: personName,
     person_avatar_url: personAvatar,
+    assignee_pco_id: assigneePcoId,
     assignee_name: assigneeName,
     note: card.attributes?.note ?? null,
     snoozed_until: card.attributes?.snooze_until ?? null,
@@ -218,4 +223,34 @@ async function deleteStepFromPayload(payload) {
   const stepId = payload.data?.id;
   if (!stepId) return;
   await supabase.from('pc_workflow_steps').delete().eq('pco_id', stepId);
+}
+
+// ---------------------------------------------------------
+// PERSON PROFILE HANDLERS
+// ---------------------------------------------------------
+
+async function updatePersonFromPayload(payload) {
+  const person = payload.data;
+  if (!person) return;
+
+  const personPcoId = person.id;
+  const personName = person.attributes?.name ?? `${person.attributes?.first_name} ${person.attributes?.last_name}`;
+  const personAvatar = person.attributes?.avatar ?? null;
+
+  // Update their info if they are the primary person on the card
+  await supabase
+    .from('pc_workflow_cards')
+    .update({
+      person_name: personName,
+      person_avatar_url: personAvatar
+    })
+    .eq('person_pco_id', personPcoId);
+
+  // Update their info if they are the assignee on the card
+  await supabase
+    .from('pc_workflow_cards')
+    .update({
+      assignee_name: personName
+    })
+    .eq('assignee_pco_id', personPcoId);
 }
