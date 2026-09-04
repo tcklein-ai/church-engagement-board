@@ -11,6 +11,7 @@ cardsRouter.post('/:id/move', async (req, res) => {
     return res.status(400).json({ error: 'targetStepPcoId and targetBoardColumn are required' });
   }
 
+  // Fetch the card and join the parent workflow table to get the workflow's PCO ID
   const { data: card, error: fetchErr } = await supabase
     .from('pc_workflow_cards')
     .select('*, pc_workflow_workflows(pco_id)')
@@ -18,11 +19,15 @@ cardsRouter.post('/:id/move', async (req, res) => {
     .single();
     
   if (fetchErr || !card) {
-    return res.status(404).json({ error: 'Card not found' });
+    return res.status(404).json({ error: 'Card not found in database' });
   }
+
+  // Extract the parent workflow ID securely
+  const workflowPcoId = card.pc_workflow_workflows?.pco_id;
 
   try {
     await movePcoWorkflowCard({
+      workflowPcoId,
       cardPcoId: card.pco_id,
       targetStepPcoId,
     });
@@ -53,34 +58,40 @@ cardsRouter.post('/:id/move', async (req, res) => {
   res.json({ ok: true });
 });
 
-async function movePcoWorkflowCard({ cardPcoId, targetStepPcoId }) {
+async function movePcoWorkflowCard({ workflowPcoId, cardPcoId, targetStepPcoId }) {
   const appId = process.env.PCO_APP_ID;
   const secret = process.env.PCO_SECRET;
 
-  const response = await fetch(
-    `https://api.planningcenteronline.com/people/v2/workflow_cards/${cardPcoId}`,
-    {
-      method: 'PATCH',
-      headers: {
-        Authorization: 'Basic ' + Buffer.from(`${appId}:${secret}`).toString('base64'),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        data: {
-          type: "WorkflowCard",
-          id: cardPcoId,
-          relationships: {
-            step: {
-              data: { 
-                type: "WorkflowStep", 
-                id: targetStepPcoId 
-              }
+  if (!workflowPcoId) {
+    throw new Error('Missing workflowPcoId. Cannot build PCO URL.');
+  }
+
+  // The correct nested URL structure required by Planning Center
+  const url = `https://api.planningcenteronline.com/people/v2/workflows/${workflowPcoId}/cards/${cardPcoId}`;
+  console.log(`Sending PATCH to: ${url}`);
+  console.log(`Targeting Step ID: ${targetStepPcoId}`);
+
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      Authorization: 'Basic ' + Buffer.from(`${appId}:${secret}`).toString('base64'),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      data: {
+        type: "WorkflowCard",
+        id: cardPcoId,
+        relationships: {
+          step: {
+            data: { 
+              type: "WorkflowStep", 
+              id: targetStepPcoId 
             }
           }
         }
-      })
-    }
-  );
+      }
+    })
+  });
 
   if (!response.ok) {
     const text = await response.text();
