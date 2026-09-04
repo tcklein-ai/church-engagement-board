@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 const COLUMNS = [
   { key: 'new', label: 'New / Triggered' },
@@ -8,9 +9,12 @@ const COLUMNS = [
 ];
 
 export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) {
-  // TV defaults to dark mode and hidden empty rows. Admin has toggles.
   const [hideEmpty, setHideEmpty] = useState(!interactive); 
   const [darkMode, setDarkMode] = useState(!interactive); 
+  
+  // Row Sorting State
+  const [sortCol, setSortCol] = useState(null);
+  const [sortDesc, setSortDesc] = useState(true);
 
   const cardsByWorkflowAndColumn = useMemo(() => {
     const map = {};
@@ -21,14 +25,38 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
     return map;
   }, [cards]);
 
-  const visibleWorkflows = useMemo(() => {
-    if (!hideEmpty) return workflows;
-    return workflows.filter(wf => cards.some(c => c.workflow_id === wf.id));
-  }, [workflows, cards, hideEmpty]);
+  const sortedWorkflows = useMemo(() => {
+    let wfs = workflows;
+    
+    // Filter empty if toggled
+    if (hideEmpty) {
+      wfs = wfs.filter(wf => cards.some(c => c.workflow_id === wf.id));
+    }
 
-  // Dynamic Theme Styling
+    // Sort rows based on column click
+    if (sortCol) {
+      wfs = [...wfs].sort((a, b) => {
+        const aCount = (cardsByWorkflowAndColumn[`${a.id}:${sortCol}`] || []).length;
+        const bCount = (cardsByWorkflowAndColumn[`${b.id}:${sortCol}`] || []).length;
+        return sortDesc ? bCount - aCount : aCount - bCount;
+      });
+    }
+
+    return wfs;
+  }, [workflows, cards, hideEmpty, cardsByWorkflowAndColumn, sortCol, sortDesc]);
+
+  const handleSort = (colKey) => {
+    if (sortCol === colKey) {
+      setSortDesc(!sortDesc); // Toggle direction
+    } else {
+      setSortCol(colKey);
+      setSortDesc(true); // Default to most first
+    }
+  };
+
   const bgMain = darkMode ? 'bg-[#0f172a] text-gray-100' : 'bg-gray-50 text-gray-900';
   const bgHeader = darkMode ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-gray-200 border-gray-300 text-gray-700';
+  const bgLeftCol = darkMode ? 'bg-slate-950/50' : 'bg-gray-100/80';
   const borderGrid = darkMode ? '#334155' : '#e5e7eb';
 
   return (
@@ -83,22 +111,29 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
 
       {/* Column header row */}
       <div
-        className="grid sticky top-0 z-10 shadow-sm"
-        style={{ gridTemplateColumns: `220px repeat(${COLUMNS.length}, 1fr)` }}
+        className="grid sticky top-0 z-20 shadow-sm"
+        style={{ gridTemplateColumns: `250px repeat(${COLUMNS.length}, 1fr)` }}
       >
-        <div className={bgHeader} />
+        <div className={`px-4 py-3 font-bold text-sm uppercase tracking-wide border-b-2 border-r flex items-center shadow-[4px_0_10px_-5px_rgba(0,0,0,0.1)] ${bgHeader} ${bgLeftCol}`} style={{ borderColor: borderGrid }}>
+          Workflows
+        </div>
         {COLUMNS.map((col) => (
           <div
             key={col.key}
-            className={`px-4 py-3 font-bold text-sm uppercase tracking-wide border-b-2 ${bgHeader}`}
+            onClick={() => handleSort(col.key)}
+            className={`px-4 py-3 font-bold text-sm uppercase tracking-wide border-b-2 cursor-pointer select-none group transition-colors hover:bg-indigo-50/10 flex items-center justify-between ${bgHeader}`}
+            style={{ borderColor: borderGrid }}
           >
-            {col.label}
+            <span>{col.label}</span>
+            <span className={`text-[10px] ${sortCol === col.key ? 'opacity-100 text-indigo-500' : 'opacity-0 group-hover:opacity-30'}`}>
+              {sortCol === col.key ? (sortDesc ? '▼' : '▲') : '▼'}
+            </span>
           </div>
         ))}
       </div>
 
       <div className="pb-20">
-        {visibleWorkflows.map((workflow, index) => {
+        {sortedWorkflows.map((workflow, index) => {
           const isEven = index % 2 === 0;
           const rowBg = darkMode 
             ? (isEven ? 'bg-slate-800/40' : 'bg-slate-900/40')
@@ -109,18 +144,27 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
               key={workflow.id}
               className="grid items-stretch border-b"
               style={{
-                gridTemplateColumns: `220px repeat(${COLUMNS.length}, 1fr)`,
+                gridTemplateColumns: `250px repeat(${COLUMNS.length}, 1fr)`,
                 borderColor: borderGrid,
               }}
             >
               <div
-                className={`px-4 py-4 font-semibold flex items-center border-r ${rowBg}`}
+                className={`px-5 py-4 font-semibold flex items-center border-r transition-colors shadow-[4px_0_10px_-5px_rgba(0,0,0,0.05)] ${bgLeftCol} hover:bg-indigo-50 dark:hover:bg-indigo-900/40`}
                 style={{ 
                   borderLeft: `6px solid ${workflow.color ?? '#6366f1'}`,
                   borderColor: borderGrid 
                 }}
               >
-                {workflow.name}
+                {interactive ? (
+                  <Link 
+                    to={`/board/default/workflow/${workflow.pco_id}`} 
+                    className="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer block w-full leading-snug"
+                  >
+                    {workflow.name}
+                  </Link>
+                ) : (
+                  <span className="leading-snug">{workflow.name}</span>
+                )}
               </div>
 
               {COLUMNS.map((col) => (
@@ -143,12 +187,29 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
 }
 
 function SwimlaneCell({ cardsList, interactive, rowBg, borderGrid, steps, workflowPcoId }) {
+  // Option 3B: Always sort Overdue First, then Oldest to Newest
+  const sortedCards = useMemo(() => {
+    return [...cardsList].sort((a, b) => {
+      const now = new Date();
+      
+      const aIsOverdue = a.flagged || (a.snoozed_until && new Date(a.snoozed_until) < now) ? 1 : 0;
+      const bIsOverdue = b.flagged || (b.snoozed_until && new Date(b.snoozed_until) < now) ? 1 : 0;
+      
+      if (aIsOverdue !== bIsOverdue) return bIsOverdue - aIsOverdue; 
+
+      const aTime = a.pco_created_at ? new Date(a.pco_created_at).getTime() : 0;
+      const bTime = b.pco_created_at ? new Date(b.pco_created_at).getTime() : 0;
+      
+      return aTime - bTime; 
+    });
+  }, [cardsList]);
+
   return (
     <div
       className={`px-3 py-4 border-r flex flex-col gap-4 ${rowBg}`}
       style={{ borderColor: borderGrid }}
     >
-      {cardsList.map((card) => (
+      {sortedCards.map((card) => (
         <KanbanCard 
           key={card.id} 
           card={card} 
@@ -164,20 +225,15 @@ function SwimlaneCell({ cardsList, interactive, rowBg, borderGrid, steps, workfl
 function KanbanCard({ card, steps, interactive, workflowPcoId }) {
   const stepName = steps.find((s) => s.id === card.step_id)?.name;
   
-  // Deterministic subtle tilt based on the card's UUID
   const charCode = card.id.charCodeAt(0) + card.id.charCodeAt(card.id.length - 1);
   const tilt = charCode % 3 === 0 ? '-rotate-1' : charCode % 3 === 1 ? 'rotate-2' : 'rotate-1';
   
-  // ---------------------------------------------------------
-  // TIME & STATE LOGIC
-  // ---------------------------------------------------------
   const now = new Date();
   let isSnoozed = false;
   let isOverdue = false;
 
   if (card.snoozed_until) {
     const snoozeDate = new Date(card.snoozed_until);
-    // If the snooze date is in the past, they missed it = overdue
     if (snoozeDate < now) {
       isOverdue = true;
     } else {
@@ -189,25 +245,17 @@ function KanbanCard({ card, steps, interactive, workflowPcoId }) {
     isOverdue = true;
   }
 
-  // ---------------------------------------------------------
-  // COLOR ASSIGNMENTS
-  // ---------------------------------------------------------
-  let colorClasses = "bg-[#fefce8] text-gray-800 border-[#fde047]/60"; // Default Yellow
+  let colorClasses = "bg-[#fefce8] text-gray-800 border-[#fde047]/60"; 
   
   if (isOverdue) {
-    // Alert State: Pale Red/Rose
     colorClasses = "bg-rose-50 text-rose-950 border-rose-300/80"; 
   } else if (isSnoozed) {
-    // Paused State: Muted Slate
     colorClasses = "bg-slate-100 text-slate-600 border-slate-300/80 opacity-80"; 
   }
 
-  // Post-it physical styling
   const baseClasses = `relative rounded-sm px-4 py-3 shadow-md ${tilt} transition-all duration-200 border-t border-l border-white/60 border-b border-r`;
   const hoverClasses = interactive ? "hover:scale-105 hover:shadow-xl hover:z-10 cursor-pointer" : "";
   const flaggedClasses = card.flagged ? "ring-2 ring-red-500 ring-offset-2 ring-offset-transparent" : "";
-
-  // Deep link to the specific workflow profile in Planning Center
   const pcoUrl = `https://people.planningcenteronline.com/workflows/${workflowPcoId}/cards/${card.pco_id}`;
 
   const CardContent = (
