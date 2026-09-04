@@ -36,25 +36,46 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
       
       {/* Top Toolbar for Admin */}
       {interactive && (
-        <div className="flex items-center gap-6 p-4 border-b border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
-          <label className="flex items-center gap-2 cursor-pointer text-sm font-semibold select-none">
-            <input 
-              type="checkbox" 
-              checked={hideEmpty} 
-              onChange={(e) => setHideEmpty(e.target.checked)} 
-              className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500" 
-            />
-            Hide Empty Workflows
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer text-sm font-semibold select-none">
-            <input 
-              type="checkbox" 
-              checked={darkMode} 
-              onChange={(e) => setDarkMode(e.target.checked)} 
-              className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500" 
-            />
-            Dark Mode
-          </label>
+        <div className="flex items-center justify-between p-4 border-b border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
+          <div className="flex items-center gap-6">
+            <label className="flex items-center gap-2 cursor-pointer text-sm font-semibold select-none">
+              <input 
+                type="checkbox" 
+                checked={hideEmpty} 
+                onChange={(e) => setHideEmpty(e.target.checked)} 
+                className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500" 
+              />
+              Hide Empty Workflows
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer text-sm font-semibold select-none">
+              <input 
+                type="checkbox" 
+                checked={darkMode} 
+                onChange={(e) => setDarkMode(e.target.checked)} 
+                className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500" 
+              />
+              Dark Mode
+            </label>
+          </div>
+          
+          <button
+            onClick={async (e) => {
+              const btn = e.currentTarget;
+              btn.disabled = true;
+              btn.innerHTML = 'Syncing...';
+              try {
+                await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/sync`, { method: 'POST' });
+              } catch (err) {
+                console.error(err);
+              } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Force PCO Sync';
+              }
+            }}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded shadow transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800"
+          >
+            Force PCO Sync
+          </button>
         </div>
       )}
 

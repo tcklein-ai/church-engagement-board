@@ -4,6 +4,7 @@ import cors from 'cors';
 import { webhooksRouter } from './routes/webhooks.js';
 import { cardsRouter } from './routes/cards.js';
 import { verifyPcoSignature } from './lib/verifyPcoSignature.js';
+import { syncRouter } from './routes/sync.js';
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use(
 
 app.use(express.json());
 app.use('/api/cards', cardsRouter);
+app.use('/api/sync', syncRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
