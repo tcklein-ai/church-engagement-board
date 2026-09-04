@@ -15,12 +15,14 @@ async function fetchPco(endpoint) {
 
 syncRouter.post('/', async (req, res) => {
   try {
-    // 1. Fetch all Workflows
     const wfRes = await fetchPco('/workflows');
     const workflows = wfRes.data;
     
+    // Flags to ensure we only log the data once to keep your terminal clean
+    let hasLoggedStep = false;
+    let hasLoggedCard = false;
+
     for (const wf of workflows) {
-      // Upsert Workflow
       const { data: dbWf } = await supabase
         .from('pc_workflow_workflows')
         .upsert({
@@ -30,12 +32,25 @@ syncRouter.post('/', async (req, res) => {
         }, { onConflict: 'pco_id' })
         .select().single();
 
-      // 2. Fetch and Upsert Steps
       const stepsRes = await fetchPco(`/workflows/${wf.id}/steps`);
       for (const step of stepsRes.data) {
+        
+        // --- DIAGNOSTIC LOG 1: STEP ATTRIBUTES ---
+        if (!hasLoggedStep) {
+           console.log('\n--- PCO STEP ATTRIBUTES ---');
+           console.log(step.attributes);
+           hasLoggedStep = true;
+        }
+
         const stepName = step.attributes.name;
         const stepPosition = step.attributes.sequence || 0;
-        const turnaroundDays = step.attributes.expected_turnaround_time ?? null;
+        
+        // Extended fallbacks for different possible PCO naming conventions
+        const turnaroundDays = step.attributes.expected_turnaround_time 
+                            ?? step.attributes.expected_turnaround_days 
+                            ?? step.attributes.turnaround_time 
+                            ?? null;
+
         const boardColumn = defaultColumnForStep({ name: stepName, position: stepPosition });
 
         await supabase
@@ -50,11 +65,18 @@ syncRouter.post('/', async (req, res) => {
           }, { onConflict: 'workflow_id, pco_id' });
       }
 
-      // 3. Fetch and Upsert Cards (Including Person & Assignee data for avatars)
       const cardsRes = await fetchPco(`/workflows/${wf.id}/cards?include=person,assignee`);
       const included = cardsRes.included || [];
       
       for (const card of cardsRes.data) {
+        
+        // --- DIAGNOSTIC LOG 2: CARD ATTRIBUTES ---
+        if (!hasLoggedCard) {
+           console.log('\n--- PCO CARD ATTRIBUTES ---');
+           console.log(card.attributes);
+           hasLoggedCard = true;
+        }
+
         const stepPcoId = card.relationships?.current_step?.data?.id ?? card.relationships?.step?.data?.id;
         const personPcoId = card.relationships?.person?.data?.id;
         const assigneePcoId = card.relationships?.assignee?.data?.id;
