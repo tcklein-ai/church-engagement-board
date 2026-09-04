@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
 const COLUMNS = [
@@ -9,8 +9,24 @@ const COLUMNS = [
 ];
 
 export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) {
-  const [hideEmpty, setHideEmpty] = useState(!interactive); 
-  const [darkMode, setDarkMode] = useState(!interactive); 
+  // Initialize from localStorage, fallback to interactive default
+  const [hideEmpty, setHideEmpty] = useState(() => {
+    const saved = localStorage.getItem('pco_kanban_hideEmpty');
+    return saved !== null ? JSON.parse(saved) : !interactive;
+  }); 
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('pco_kanban_darkMode');
+    return saved !== null ? JSON.parse(saved) : !interactive;
+  }); 
+  
+  // Save to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('pco_kanban_hideEmpty', JSON.stringify(hideEmpty));
+  }, [hideEmpty]);
+
+  useEffect(() => {
+    localStorage.setItem('pco_kanban_darkMode', JSON.stringify(darkMode));
+  }, [darkMode]);
   
   // Row Sorting State
   const [sortCol, setSortCol] = useState(null);
@@ -47,10 +63,10 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
 
   const handleSort = (colKey) => {
     if (sortCol === colKey) {
-      setSortDesc(!sortDesc); // Toggle direction
+      setSortDesc(!sortDesc); 
     } else {
       setSortCol(colKey);
-      setSortDesc(true); // Default to most first
+      setSortDesc(true); 
     }
   };
 
@@ -187,7 +203,6 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
 }
 
 function SwimlaneCell({ cardsList, interactive, rowBg, borderGrid, steps, workflowPcoId }) {
-  // Option 3B: Always sort Overdue First, then Oldest to Newest
   const sortedCards = useMemo(() => {
     return [...cardsList].sort((a, b) => {
       const now = new Date();

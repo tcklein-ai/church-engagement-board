@@ -1,14 +1,22 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
 export function SpecificWorkflowBoard({ workflows, steps, cards, workflowPcoId }) {
-  const [darkMode, setDarkMode] = useState(false);
+  // Pull dark mode preference from localStorage
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('pco_kanban_darkMode');
+    return saved !== null ? JSON.parse(saved) : false;
+  });
+
+  // Save changes back to localStorage
+  useEffect(() => {
+    localStorage.setItem('pco_kanban_darkMode', JSON.stringify(darkMode));
+  }, [darkMode]);
 
   const workflow = useMemo(() => {
     return workflows.find((w) => String(w.pco_id) === String(workflowPcoId));
   }, [workflows, workflowPcoId]);
 
-  // Extract only the steps for this specific workflow, sorted by official sequence
   const activeSteps = useMemo(() => {
     if (!workflow) return [];
     return steps
@@ -16,7 +24,6 @@ export function SpecificWorkflowBoard({ workflows, steps, cards, workflowPcoId }
       .sort((a, b) => a.position - b.position);
   }, [steps, workflow]);
 
-  // Group cards into their explicit step IDs
   const cardsByStep = useMemo(() => {
     const map = {};
     if (!workflow) return map;
@@ -106,7 +113,6 @@ export function SpecificWorkflowBoard({ workflows, steps, cards, workflowPcoId }
 }
 
 function SpecificBoardCell({ cardsList, workflowPcoId, steps }) {
-  // Always sort Overdue First, then Oldest to Newest
   const sortedCards = useMemo(() => {
     return [...cardsList].sort((a, b) => {
       const now = new Date();
