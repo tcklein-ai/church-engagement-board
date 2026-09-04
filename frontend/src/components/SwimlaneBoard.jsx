@@ -168,11 +168,44 @@ function KanbanCard({ card, steps, interactive, workflowPcoId }) {
   const charCode = card.id.charCodeAt(0) + card.id.charCodeAt(card.id.length - 1);
   const tilt = charCode % 3 === 0 ? '-rotate-1' : charCode % 3 === 1 ? 'rotate-2' : 'rotate-1';
   
+  // ---------------------------------------------------------
+  // TIME & STATE LOGIC
+  // ---------------------------------------------------------
+  const now = new Date();
+  let isSnoozed = false;
+  let isOverdue = false;
+
+  if (card.snoozed_until) {
+    const snoozeDate = new Date(card.snoozed_until);
+    // If the snooze date is in the past, they missed it = overdue
+    if (snoozeDate < now) {
+      isOverdue = true;
+    } else {
+      isSnoozed = true;
+    }
+  }
+
+  if (card.flagged) {
+    isOverdue = true;
+  }
+
+  // ---------------------------------------------------------
+  // COLOR ASSIGNMENTS
+  // ---------------------------------------------------------
+  let colorClasses = "bg-[#fefce8] text-gray-800 border-[#fde047]/60"; // Default Yellow
+  
+  if (isOverdue) {
+    // Alert State: Pale Red/Rose
+    colorClasses = "bg-rose-50 text-rose-950 border-rose-300/80"; 
+  } else if (isSnoozed) {
+    // Paused State: Muted Slate
+    colorClasses = "bg-slate-100 text-slate-600 border-slate-300/80 opacity-80"; 
+  }
+
   // Post-it physical styling
-  const baseClasses = `relative rounded-sm px-4 py-3 shadow-md ${tilt} transition-all duration-200`;
-  const colorClasses = "bg-[#fefce8] text-gray-800 border-t border-l border-white/60 border-b border-r border-[#fde047]/60";
+  const baseClasses = `relative rounded-sm px-4 py-3 shadow-md ${tilt} transition-all duration-200 border-t border-l border-white/60 border-b border-r`;
   const hoverClasses = interactive ? "hover:scale-105 hover:shadow-xl hover:z-10 cursor-pointer" : "";
-  const flaggedClasses = card.flagged ? "ring-2 ring-red-500 ring-offset-2 ring-offset-[#fefce8]" : "";
+  const flaggedClasses = card.flagged ? "ring-2 ring-red-500 ring-offset-2 ring-offset-transparent" : "";
 
   // Deep link to the specific workflow profile in Planning Center
   const pcoUrl = `https://people.planningcenteronline.com/workflows/${workflowPcoId}/cards/${card.pco_id}`;
@@ -180,34 +213,38 @@ function KanbanCard({ card, steps, interactive, workflowPcoId }) {
   const CardContent = (
     <div className={`${baseClasses} ${colorClasses} ${hoverClasses} ${flaggedClasses}`}>
       <div className="flex items-start justify-between gap-2">
-        <div className="font-bold text-[15px] leading-tight pt-1">
+        <div className={`font-bold text-[15px] leading-tight pt-1 ${isOverdue ? 'text-rose-950' : isSnoozed ? 'text-slate-700' : 'text-gray-900'}`}>
           {card.person_name}
         </div>
         {card.person_avatar_url && (
           <img 
             src={card.person_avatar_url} 
             alt={card.person_name} 
-            className="w-9 h-9 rounded-full border border-gray-300 shadow-sm shrink-0 object-cover" 
+            className={`w-9 h-9 rounded-full border shadow-sm shrink-0 object-cover ${isOverdue ? 'border-rose-200' : isSnoozed ? 'border-slate-300 grayscale opacity-70' : 'border-gray-300'}`} 
           />
         )}
       </div>
       
       {stepName && (
-        <div className="text-[11px] font-bold mt-1 text-indigo-700/80 uppercase tracking-wider">
+        <div className={`text-[11px] font-bold mt-1 uppercase tracking-wider ${isOverdue ? 'text-rose-700/80' : isSnoozed ? 'text-slate-500' : 'text-indigo-700/80'}`}>
           {stepName}
         </div>
       )}
 
       {card.assignee_name && (
-        <div className="mt-2.5 flex items-center gap-1.5 text-xs font-semibold text-gray-600">
+        <div className={`mt-2.5 flex items-center gap-1.5 text-xs font-semibold ${isOverdue ? 'text-rose-800/70' : isSnoozed ? 'text-slate-500' : 'text-gray-600'}`}>
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
           {card.assignee_name}
         </div>
       )}
       
       {card.snoozed_until && (
-        <div className="text-xs mt-2 font-bold text-amber-800 bg-amber-200/60 inline-block px-1.5 py-0.5 rounded shadow-sm">
-          Snoozed: {new Date(card.snoozed_until).toLocaleDateString()}
+        <div className={`text-xs mt-2 font-bold inline-block px-1.5 py-0.5 rounded shadow-sm ${
+          isOverdue 
+            ? 'text-rose-100 bg-rose-700' 
+            : 'text-slate-600 bg-slate-200/80'
+        }`}>
+          {isOverdue ? 'Overdue:' : 'Snoozed:'} {new Date(card.snoozed_until).toLocaleDateString()}
         </div>
       )}
     </div>
