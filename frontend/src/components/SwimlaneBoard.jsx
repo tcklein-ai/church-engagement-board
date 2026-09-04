@@ -8,22 +8,14 @@ const COLUMNS = [
   { key: 'completed', label: 'Completed' },
 ];
 
-// Centralized status logic for sorting and coloring across both boards
-export function getCardStatus(card, steps) {
+export function getCardStatus(card) {
   const now = new Date();
   
-  if (card.flagged) return { isOverdue: true, isSnoozed: false };
+  if (card.is_overdue || card.flagged) return { isOverdue: true, isSnoozed: false };
 
   if (card.snoozed_until) {
     if (new Date(card.snoozed_until) < now) return { isOverdue: true, isSnoozed: false };
     return { isOverdue: false, isSnoozed: true }; 
-  }
-
-  const step = steps.find(s => s.id === card.step_id);
-  if (step?.expected_turnaround_days && card.pco_updated_at) {
-    const deadline = new Date(card.pco_updated_at);
-    deadline.setDate(deadline.getDate() + step.expected_turnaround_days);
-    if (now > deadline) return { isOverdue: true, isSnoozed: false };
   }
 
   return { isOverdue: false, isSnoozed: false };
@@ -159,8 +151,8 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
 function SwimlaneCell({ cardsList, interactive, rowBg, borderGrid, steps, workflowPcoId }) {
   const sortedCards = useMemo(() => {
     return [...cardsList].sort((a, b) => {
-      const aStatus = getCardStatus(a, steps);
-      const bStatus = getCardStatus(b, steps);
+      const aStatus = getCardStatus(a);
+      const bStatus = getCardStatus(b);
       
       if (aStatus.isOverdue !== bStatus.isOverdue) return bStatus.isOverdue ? 1 : -1; 
       
@@ -168,7 +160,7 @@ function SwimlaneCell({ cardsList, interactive, rowBg, borderGrid, steps, workfl
       const bTime = b.pco_created_at ? new Date(b.pco_created_at).getTime() : 0;
       return aTime - bTime; 
     });
-  }, [cardsList, steps]);
+  }, [cardsList]);
 
   return (
     <div className={`px-3 py-4 border-r flex flex-col gap-4 ${rowBg}`} style={{ borderColor: borderGrid }}>
@@ -184,7 +176,7 @@ function KanbanCard({ card, steps, interactive, workflowPcoId }) {
   const charCode = card.id.charCodeAt(0) + card.id.charCodeAt(card.id.length - 1);
   const tilt = charCode % 3 === 0 ? '-rotate-1' : charCode % 3 === 1 ? 'rotate-2' : 'rotate-1';
   
-  const { isOverdue, isSnoozed } = getCardStatus(card, steps);
+  const { isOverdue, isSnoozed } = getCardStatus(card);
 
   let colorClasses = "bg-[#fefce8] text-gray-800 border-[#fde047]/60"; 
   if (isOverdue) colorClasses = "bg-rose-50 text-rose-950 border-rose-300/80"; 

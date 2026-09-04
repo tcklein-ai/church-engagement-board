@@ -146,7 +146,7 @@ async function upsertCardFromPayload(payload) {
     }
   }
 
-  const { error: cardErr } = await supabase.from('pc_workflow_cards').upsert({
+const { error: cardErr } = await supabase.from('pc_workflow_cards').upsert({
     pco_id: card.id,
     workflow_id: workflow.id,
     step_id: stepRowId,
@@ -159,6 +159,7 @@ async function upsertCardFromPayload(payload) {
     note: card.attributes?.note ?? null,
     snoozed_until: card.attributes?.snooze_until ?? null,
     flagged: card.attributes?.flagged ?? false,
+    is_overdue: card.attributes?.overdue ?? false,
     pco_created_at: card.attributes?.created_at ?? null,
     pco_updated_at: card.attributes?.updated_at ?? null,
   }, { onConflict: 'pco_id', ignoreDuplicates: false });

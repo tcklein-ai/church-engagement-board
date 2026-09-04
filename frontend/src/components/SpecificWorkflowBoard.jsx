@@ -82,8 +82,8 @@ export function SpecificWorkflowBoard({ workflows, steps, cards, workflowPcoId }
 function SpecificBoardCell({ cardsList, workflowPcoId, steps }) {
   const sortedCards = useMemo(() => {
     return [...cardsList].sort((a, b) => {
-      const aStatus = getCardStatus(a, steps);
-      const bStatus = getCardStatus(b, steps);
+      const aStatus = getCardStatus(a);
+      const bStatus = getCardStatus(b);
       
       if (aStatus.isOverdue !== bStatus.isOverdue) return bStatus.isOverdue ? 1 : -1; 
       
@@ -91,7 +91,7 @@ function SpecificBoardCell({ cardsList, workflowPcoId, steps }) {
       const bTime = b.pco_created_at ? new Date(b.pco_created_at).getTime() : 0;
       return aTime - bTime; 
     });
-  }, [cardsList, steps]);
+  }, [cardsList]);
 
   if (sortedCards.length === 0) return <div className="h-full w-full flex items-center justify-center p-6 border-2 border-dashed border-gray-300 dark:border-slate-700 rounded-lg text-gray-400 dark:text-slate-500 text-sm font-semibold text-center opacity-50">Drop cards here</div>;
 
@@ -102,7 +102,7 @@ function SpecificKanbanCard({ card, steps, workflowPcoId }) {
   const charCode = card.id.charCodeAt(0) + card.id.charCodeAt(card.id.length - 1);
   const tilt = charCode % 3 === 0 ? '-rotate-1' : charCode % 3 === 1 ? 'rotate-2' : 'rotate-1';
   
-  const { isOverdue, isSnoozed } = getCardStatus(card, steps);
+  const { isOverdue, isSnoozed } = getCardStatus(card);
 
   let colorClasses = "bg-[#fefce8] text-gray-800 border-[#fde047]/60"; 
   if (isOverdue) colorClasses = "bg-rose-50 text-rose-950 border-rose-300/80"; 
