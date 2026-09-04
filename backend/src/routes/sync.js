@@ -35,6 +35,7 @@ syncRouter.post('/', async (req, res) => {
       for (const step of stepsRes.data) {
         const stepName = step.attributes.name;
         const stepPosition = step.attributes.sequence || 0;
+        const turnaroundDays = step.attributes.expected_turnaround_time ?? null;
         const boardColumn = defaultColumnForStep({ name: stepName, position: stepPosition });
 
         await supabase
@@ -44,7 +45,8 @@ syncRouter.post('/', async (req, res) => {
             pco_id: step.id,
             name: stepName,
             position: stepPosition,
-            board_column: boardColumn
+            board_column: boardColumn,
+            expected_turnaround_days: turnaroundDays
           }, { onConflict: 'workflow_id, pco_id' });
       }
 

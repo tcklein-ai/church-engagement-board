@@ -8,8 +8,28 @@ const COLUMNS = [
   { key: 'completed', label: 'Completed' },
 ];
 
+// Centralized status logic for sorting and coloring across both boards
+export function getCardStatus(card, steps) {
+  const now = new Date();
+  
+  if (card.flagged) return { isOverdue: true, isSnoozed: false };
+
+  if (card.snoozed_until) {
+    if (new Date(card.snoozed_until) < now) return { isOverdue: true, isSnoozed: false };
+    return { isOverdue: false, isSnoozed: true }; 
+  }
+
+  const step = steps.find(s => s.id === card.step_id);
+  if (step?.expected_turnaround_days && card.pco_updated_at) {
+    const deadline = new Date(card.pco_updated_at);
+    deadline.setDate(deadline.getDate() + step.expected_turnaround_days);
+    if (now > deadline) return { isOverdue: true, isSnoozed: false };
+  }
+
+  return { isOverdue: false, isSnoozed: false };
+}
+
 export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) {
-  // Initialize from localStorage, fallback to interactive default
   const [hideEmpty, setHideEmpty] = useState(() => {
     const saved = localStorage.getItem('pco_kanban_hideEmpty');
     return saved !== null ? JSON.parse(saved) : !interactive;
@@ -19,16 +39,9 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
     return saved !== null ? JSON.parse(saved) : !interactive;
   }); 
   
-  // Save to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem('pco_kanban_hideEmpty', JSON.stringify(hideEmpty));
-  }, [hideEmpty]);
-
-  useEffect(() => {
-    localStorage.setItem('pco_kanban_darkMode', JSON.stringify(darkMode));
-  }, [darkMode]);
+  useEffect(() => localStorage.setItem('pco_kanban_hideEmpty', JSON.stringify(hideEmpty)), [hideEmpty]);
+  useEffect(() => localStorage.setItem('pco_kanban_darkMode', JSON.stringify(darkMode)), [darkMode]);
   
-  // Row Sorting State
   const [sortCol, setSortCol] = useState(null);
   const [sortDesc, setSortDesc] = useState(true);
 
@@ -43,13 +56,7 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
 
   const sortedWorkflows = useMemo(() => {
     let wfs = workflows;
-    
-    // Filter empty if toggled
-    if (hideEmpty) {
-      wfs = wfs.filter(wf => cards.some(c => c.workflow_id === wf.id));
-    }
-
-    // Sort rows based on column click
+    if (hideEmpty) wfs = wfs.filter(wf => cards.some(c => c.workflow_id === wf.id));
     if (sortCol) {
       wfs = [...wfs].sort((a, b) => {
         const aCount = (cardsByWorkflowAndColumn[`${a.id}:${sortCol}`] || []).length;
@@ -57,17 +64,12 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
         return sortDesc ? bCount - aCount : aCount - bCount;
       });
     }
-
     return wfs;
   }, [workflows, cards, hideEmpty, cardsByWorkflowAndColumn, sortCol, sortDesc]);
 
   const handleSort = (colKey) => {
-    if (sortCol === colKey) {
-      setSortDesc(!sortDesc); 
-    } else {
-      setSortCol(colKey);
-      setSortDesc(true); 
-    }
+    if (sortCol === colKey) setSortDesc(!sortDesc); 
+    else { setSortCol(colKey); setSortDesc(true); }
   };
 
   const bgMain = darkMode ? 'bg-[#0f172a] text-gray-100' : 'bg-gray-50 text-gray-900';
@@ -77,29 +79,17 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
 
   return (
     <div className={`w-full h-full min-h-screen overflow-y-auto ${bgMain}`}>
-      
-      {/* Top Toolbar for Admin */}
       {interactive && (
         <div className={`flex items-center justify-between p-4 border-b shadow-sm transition-colors ${
           darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-gray-300 text-gray-800'
         }`}>
           <div className="flex items-center gap-6">
             <label className="flex items-center gap-2 cursor-pointer text-sm font-semibold select-none hover:text-indigo-500 transition-colors">
-              <input 
-                type="checkbox" 
-                checked={hideEmpty} 
-                onChange={(e) => setHideEmpty(e.target.checked)} 
-                className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500 bg-transparent border-gray-400" 
-              />
+              <input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500 bg-transparent border-gray-400" />
               Hide Empty Workflows
             </label>
             <label className="flex items-center gap-2 cursor-pointer text-sm font-semibold select-none hover:text-indigo-500 transition-colors">
-              <input 
-                type="checkbox" 
-                checked={darkMode} 
-                onChange={(e) => setDarkMode(e.target.checked)} 
-                className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500 bg-transparent border-gray-400" 
-              />
+              <input type="checkbox" checked={darkMode} onChange={(e) => setDarkMode(e.target.checked)} className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500 bg-transparent border-gray-400" />
               Dark Mode
             </label>
           </div>
@@ -109,14 +99,9 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
               const btn = e.currentTarget;
               btn.disabled = true;
               btn.innerHTML = 'Syncing...';
-              try {
-                await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/sync`, { method: 'POST' });
-              } catch (err) {
-                console.error(err);
-              } finally {
-                btn.disabled = false;
-                btn.innerHTML = 'Force PCO Sync';
-              }
+              try { await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/sync`, { method: 'POST' }); } 
+              catch (err) { console.error(err); } 
+              finally { btn.disabled = false; btn.innerHTML = 'Force PCO Sync'; }
             }}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded shadow transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
           >
@@ -125,11 +110,7 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
         </div>
       )}
 
-      {/* Column header row */}
-      <div
-        className="grid sticky top-0 z-20 shadow-sm"
-        style={{ gridTemplateColumns: `250px repeat(${COLUMNS.length}, 1fr)` }}
-      >
+      <div className="grid sticky top-0 z-20 shadow-sm" style={{ gridTemplateColumns: `250px repeat(${COLUMNS.length}, 1fr)` }}>
         <div className={`px-4 py-3 font-bold text-sm uppercase tracking-wide border-b-2 border-r flex items-center shadow-[4px_0_10px_-5px_rgba(0,0,0,0.1)] ${bgHeader} ${bgLeftCol}`} style={{ borderColor: borderGrid }}>
           Workflows
         </div>
@@ -151,48 +132,21 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
       <div className="pb-20">
         {sortedWorkflows.map((workflow, index) => {
           const isEven = index % 2 === 0;
-          const rowBg = darkMode 
-            ? (isEven ? 'bg-slate-800/40' : 'bg-slate-900/40')
-            : (isEven ? 'bg-white' : 'bg-gray-100/50');
+          const rowBg = darkMode ? (isEven ? 'bg-slate-800/40' : 'bg-slate-900/40') : (isEven ? 'bg-white' : 'bg-gray-100/50');
           
           return (
-            <div
-              key={workflow.id}
-              className="grid items-stretch border-b"
-              style={{
-                gridTemplateColumns: `250px repeat(${COLUMNS.length}, 1fr)`,
-                borderColor: borderGrid,
-              }}
-            >
-              <div
-                className={`px-5 py-4 font-semibold flex items-center border-r transition-colors shadow-[4px_0_10px_-5px_rgba(0,0,0,0.05)] ${bgLeftCol} hover:bg-indigo-50 dark:hover:bg-indigo-900/40`}
-                style={{ 
-                  borderLeft: `6px solid ${workflow.color ?? '#6366f1'}`,
-                  borderColor: borderGrid 
-                }}
-              >
+            <div key={workflow.id} className="grid items-stretch border-b" style={{ gridTemplateColumns: `250px repeat(${COLUMNS.length}, 1fr)`, borderColor: borderGrid }}>
+              <div className={`px-5 py-4 font-semibold flex items-center border-r transition-colors shadow-[4px_0_10px_-5px_rgba(0,0,0,0.05)] ${bgLeftCol} hover:bg-indigo-50 dark:hover:bg-indigo-900/40`} style={{ borderLeft: `6px solid ${workflow.color ?? '#6366f1'}`, borderColor: borderGrid }}>
                 {interactive ? (
-                  <Link 
-                    to={`/board/default/workflow/${workflow.pco_id}`} 
-                    className="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer block w-full leading-snug"
-                  >
+                  <Link to={`/board/default/workflow/${workflow.pco_id}`} className="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer block w-full leading-snug">
                     {workflow.name}
                   </Link>
                 ) : (
                   <span className="leading-snug">{workflow.name}</span>
                 )}
               </div>
-
               {COLUMNS.map((col) => (
-                <SwimlaneCell
-                  key={col.key}
-                  cardsList={cardsByWorkflowAndColumn[`${workflow.id}:${col.key}`] ?? []}
-                  interactive={interactive}
-                  rowBg={rowBg}
-                  borderGrid={borderGrid}
-                  steps={steps}
-                  workflowPcoId={workflow.pco_id}
-                />
+                <SwimlaneCell key={col.key} cardsList={cardsByWorkflowAndColumn[`${workflow.id}:${col.key}`] ?? []} interactive={interactive} rowBg={rowBg} borderGrid={borderGrid} steps={steps} workflowPcoId={workflow.pco_id} />
               ))}
             </div>
           );
@@ -205,33 +159,21 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
 function SwimlaneCell({ cardsList, interactive, rowBg, borderGrid, steps, workflowPcoId }) {
   const sortedCards = useMemo(() => {
     return [...cardsList].sort((a, b) => {
-      const now = new Date();
+      const aStatus = getCardStatus(a, steps);
+      const bStatus = getCardStatus(b, steps);
       
-      const aIsOverdue = a.flagged || (a.snoozed_until && new Date(a.snoozed_until) < now) ? 1 : 0;
-      const bIsOverdue = b.flagged || (b.snoozed_until && new Date(b.snoozed_until) < now) ? 1 : 0;
+      if (aStatus.isOverdue !== bStatus.isOverdue) return bStatus.isOverdue ? 1 : -1; 
       
-      if (aIsOverdue !== bIsOverdue) return bIsOverdue - aIsOverdue; 
-
       const aTime = a.pco_created_at ? new Date(a.pco_created_at).getTime() : 0;
       const bTime = b.pco_created_at ? new Date(b.pco_created_at).getTime() : 0;
-      
       return aTime - bTime; 
     });
-  }, [cardsList]);
+  }, [cardsList, steps]);
 
   return (
-    <div
-      className={`px-3 py-4 border-r flex flex-col gap-4 ${rowBg}`}
-      style={{ borderColor: borderGrid }}
-    >
+    <div className={`px-3 py-4 border-r flex flex-col gap-4 ${rowBg}`} style={{ borderColor: borderGrid }}>
       {sortedCards.map((card) => (
-        <KanbanCard 
-          key={card.id} 
-          card={card} 
-          steps={steps} 
-          interactive={interactive} 
-          workflowPcoId={workflowPcoId} 
-        />
+        <KanbanCard key={card.id} card={card} steps={steps} interactive={interactive} workflowPcoId={workflowPcoId} />
       ))}
     </div>
   );
@@ -239,34 +181,14 @@ function SwimlaneCell({ cardsList, interactive, rowBg, borderGrid, steps, workfl
 
 function KanbanCard({ card, steps, interactive, workflowPcoId }) {
   const stepName = steps.find((s) => s.id === card.step_id)?.name;
-  
   const charCode = card.id.charCodeAt(0) + card.id.charCodeAt(card.id.length - 1);
   const tilt = charCode % 3 === 0 ? '-rotate-1' : charCode % 3 === 1 ? 'rotate-2' : 'rotate-1';
   
-  const now = new Date();
-  let isSnoozed = false;
-  let isOverdue = false;
-
-  if (card.snoozed_until) {
-    const snoozeDate = new Date(card.snoozed_until);
-    if (snoozeDate < now) {
-      isOverdue = true;
-    } else {
-      isSnoozed = true;
-    }
-  }
-
-  if (card.flagged) {
-    isOverdue = true;
-  }
+  const { isOverdue, isSnoozed } = getCardStatus(card, steps);
 
   let colorClasses = "bg-[#fefce8] text-gray-800 border-[#fde047]/60"; 
-  
-  if (isOverdue) {
-    colorClasses = "bg-rose-50 text-rose-950 border-rose-300/80"; 
-  } else if (isSnoozed) {
-    colorClasses = "bg-slate-100 text-slate-600 border-slate-300/80 opacity-80"; 
-  }
+  if (isOverdue) colorClasses = "bg-rose-50 text-rose-950 border-rose-300/80"; 
+  else if (isSnoozed) colorClasses = "bg-slate-100 text-slate-600 border-slate-300/80 opacity-80"; 
 
   const baseClasses = `relative rounded-sm px-4 py-3 shadow-md ${tilt} transition-all duration-200 border-t border-l border-white/60 border-b border-r`;
   const hoverClasses = interactive ? "hover:scale-105 hover:shadow-xl hover:z-10 cursor-pointer" : "";
@@ -280,11 +202,7 @@ function KanbanCard({ card, steps, interactive, workflowPcoId }) {
           {card.person_name}
         </div>
         {card.person_avatar_url && (
-          <img 
-            src={card.person_avatar_url} 
-            alt={card.person_name} 
-            className={`w-9 h-9 rounded-full border shadow-sm shrink-0 object-cover ${isOverdue ? 'border-rose-200' : isSnoozed ? 'border-slate-300 grayscale opacity-70' : 'border-gray-300'}`} 
-          />
+          <img src={card.person_avatar_url} alt={card.person_name} className={`w-9 h-9 rounded-full border shadow-sm shrink-0 object-cover ${isOverdue ? 'border-rose-200' : isSnoozed ? 'border-slate-300 grayscale opacity-70' : 'border-gray-300'}`} />
         )}
       </div>
       
@@ -294,32 +212,28 @@ function KanbanCard({ card, steps, interactive, workflowPcoId }) {
         </div>
       )}
 
-      {card.assignee_name && (
-        <div className={`mt-2.5 flex items-center gap-1.5 text-xs font-semibold ${isOverdue ? 'text-rose-800/70' : isSnoozed ? 'text-slate-500' : 'text-gray-600'}`}>
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
-          {card.assignee_name}
+      {/* Reorganized Bottom Row with Badges */}
+      <div className="mt-3 flex items-end justify-between gap-2">
+        <div className={`flex-1 flex items-center gap-1.5 text-xs font-semibold ${isOverdue ? 'text-rose-800/70' : isSnoozed ? 'text-slate-500' : 'text-gray-600'}`}>
+          {card.assignee_name && (
+            <>
+              <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+              <span className="truncate">{card.assignee_name}</span>
+            </>
+          )}
         </div>
-      )}
-      
-      {card.snoozed_until && (
-        <div className={`text-xs mt-2 font-bold inline-block px-1.5 py-0.5 rounded shadow-sm ${
-          isOverdue 
-            ? 'text-rose-100 bg-rose-700' 
-            : 'text-slate-600 bg-slate-200/80'
-        }`}>
-          {isOverdue ? 'Overdue:' : 'Snoozed:'} {new Date(card.snoozed_until).toLocaleDateString()}
-        </div>
-      )}
+        
+        {(isOverdue || isSnoozed) && (
+          <div className={`text-[10px] font-black tracking-widest uppercase px-2 py-1 rounded shadow-sm shrink-0 ${
+            isOverdue ? 'text-rose-100 bg-rose-600' : 'text-slate-500 bg-slate-200/80'
+          }`}>
+            {isOverdue ? 'OVERDUE' : 'SNOOZED'}
+          </div>
+        )}
+      </div>
     </div>
   );
 
-  if (interactive) {
-    return (
-      <a href={pcoUrl} target="_blank" rel="noopener noreferrer" className="block focus:outline-none outline-none">
-        {CardContent}
-      </a>
-    );
-  }
-
+  if (interactive) return <a href={pcoUrl} target="_blank" rel="noopener noreferrer" className="block focus:outline-none outline-none">{CardContent}</a>;
   return CardContent;
 }
