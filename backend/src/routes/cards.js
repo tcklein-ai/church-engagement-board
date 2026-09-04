@@ -80,12 +80,12 @@ async function movePcoWorkflowCard({ workflowPcoId, cardPcoId, targetStepPcoId }
     body: JSON.stringify({
       data: {
         type: "WorkflowCard",
-        id: cardPcoId,
+        id: String(cardPcoId),
         relationships: {
           step: {
             data: { 
-              type: "WorkflowStep", 
-              id: targetStepPcoId 
+              type: "Step", 
+              id: String(targetStepPcoId) 
             }
           }
         }
