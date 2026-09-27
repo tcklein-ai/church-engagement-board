@@ -8,18 +8,31 @@ async function fetchPco(endpoint) {
   const authHeader = 'Basic ' + Buffer.from(`${process.env.PCO_APP_ID}:${process.env.PCO_SECRET}`).toString('base64');
   const url = `https://api.planningcenteronline.com/people/v2${endpoint}`;
   
+  console.log(`[SYNC] Fetching PCO URL: ${url}`);
+  
   const response = await fetch(url, { headers: { Authorization: authHeader } });
-  if (!response.ok) throw new Error(`PCO API error: ${response.status}`);
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error(`[SYNC] PCO API Error (${response.status}): ${errText}`);
+    throw new Error(`PCO API error: ${response.status}`);
+  }
   return response.json();
 }
 
 syncRouter.post('/', async (req, res) => {
+  console.log('\n=======================================');
+  console.log('[SYNC] /api/sync endpoint hit! Starting manual sync...');
+  console.log('=======================================\n');
+  
   try {
     const wfRes = await fetchPco('/workflows');
     const workflows = wfRes.data;
+    console.log(`[SYNC] Found ${workflows.length} workflows in PCO.`);
     
     for (const wf of workflows) {
-      const { data: dbWf } = await supabase
+      console.log(`\n[SYNC] --- Processing Workflow: ${wf.attributes.name} (ID: ${wf.id}) ---`);
+      
+      const { data: dbWf, error: wfErr } = await supabase
         .from('pc_workflow_workflows')
         .upsert({
           pco_id: wf.id,
@@ -28,25 +41,35 @@ syncRouter.post('/', async (req, res) => {
         }, { onConflict: 'pco_id' })
         .select().single();
 
+      if (wfErr) {
+        console.error(`[SYNC DB ERROR] Failed to upsert workflow ${wf.id}:`, wfErr);
+        continue; 
+      }
+
       const stepsRes = await fetchPco(`/workflows/${wf.id}/steps`);
+      console.log(`[SYNC] Found ${stepsRes.data.length} steps for Workflow ${wf.id}`);
+      
       for (const step of stepsRes.data) {
         const stepName = step.attributes.name;
         const stepPosition = step.attributes.sequence || 0;
         const boardColumn = defaultColumnForStep({ name: stepName, position: stepPosition });
 
-        await supabase
+        const { error: stepErr } = await supabase
           .from('pc_workflow_steps')
           .upsert({
             workflow_id: dbWf.id,
             pco_id: step.id,
             name: stepName,
             position: stepPosition,
-            boardColumn: boardColumn
+            board_column: boardColumn
           }, { onConflict: 'workflow_id, pco_id' });
+          
+        if (stepErr) console.error(`[SYNC DB ERROR] Failed to upsert step ${step.id}:`, stepErr);
       }
 
       const cardsRes = await fetchPco(`/workflows/${wf.id}/cards?include=person,assignee`);
       const included = cardsRes.included || [];
+      console.log(`[SYNC] Found ${cardsRes.data.length} cards for Workflow ${wf.id}`);
       
       for (const card of cardsRes.data) {
         const stepPcoId = card.relationships?.current_step?.data?.id ?? card.relationships?.step?.data?.id;
@@ -57,12 +80,14 @@ syncRouter.post('/', async (req, res) => {
         let boardColumn = 'new';
         
         if (stepPcoId) {
-            const { data: st } = await supabase
+            const { data: st, error: stErr } = await supabase
               .from('pc_workflow_steps')
               .select('*')
               .eq('workflow_id', dbWf.id)
               .eq('pco_id', stepPcoId)
               .maybeSingle();
+              
+            if (stErr) console.error(`[SYNC DB ERROR] Error fetching step ${stepPcoId}:`, stErr);
               
             if (st) {
                 stepRowId = st.id;
@@ -75,7 +100,7 @@ syncRouter.post('/', async (req, res) => {
         const personInc = included.find(i => i.type === 'Person' && i.id === personPcoId);
         const assigneeInc = included.find(i => i.type === 'Person' && i.id === assigneePcoId);
 
-        await supabase.from('pc_workflow_cards').upsert({
+        const { error: cardErr } = await supabase.from('pc_workflow_cards').upsert({
           pco_id: card.id,
           workflow_id: dbWf.id,
           step_id: stepRowId,
@@ -92,12 +117,15 @@ syncRouter.post('/', async (req, res) => {
           pco_created_at: card.attributes?.created_at ?? null,
           pco_updated_at: card.attributes?.updated_at ?? null,
         }, { onConflict: 'pco_id', ignoreDuplicates: false });
+        
+        if (cardErr) console.error(`[SYNC DB ERROR] Failed to upsert card ${card.id}:`, cardErr);
       }
     }
     
+    console.log('\n[SYNC] Full manual sync completed successfully!');
     res.json({ success: true });
   } catch (error) {
-    console.error("Full sync failed:", error);
+    console.error("\n[SYNC FATAL ERROR] Full sync failed:", error);
     res.status(500).json({ error: error.message });
   }
 });
