@@ -7,18 +7,41 @@ export function useRealtimeBoard(_boardId) {
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // Track this state so we can force a re-fetch if settings change
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const channelRef = useRef(null);
+
+  // Listen for a custom event from the Settings Modal to reload data
+  useEffect(() => {
+    const handleSettingsChange = () => setRefreshTrigger(prev => prev + 1);
+    window.addEventListener('pco_settings_changed', handleSettingsChange);
+    return () => window.removeEventListener('pco_settings_changed', handleSettingsChange);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadInitial() {
       setLoading(true);
+
+      // 1. Get the lookback days from storage, default to 30
+      const savedDays = localStorage.getItem('pco_kanban_lookbackDays');
+      const lookbackDays = savedDays !== null ? parseInt(savedDays, 10) : 30;
+
+      // 2. Calculate the cutoff date
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - lookbackDays);
+      const cutoffIso = cutoffDate.toISOString();
+
+      // 3. The .or() query ensures active cards are ALWAYS fetched, but completed cards are filtered by date
       const [{ data: wf, error: wfErr }, { data: st, error: stErr }, { data: cd, error: cdErr }] =
         await Promise.all([
           supabase.from('pc_workflow_workflows').select('*').eq('is_active', true).order('position'),
           supabase.from('pc_workflow_steps').select('*').order('position'),
-          supabase.from('pc_workflow_cards').select('*'),
+          supabase.from('pc_workflow_cards')
+            .select('*')
+            .or(`board_column.neq.completed,pco_updated_at.gte.${cutoffIso}`)
         ]);
 
       if (cancelled) return;
@@ -62,7 +85,7 @@ export function useRealtimeBoard(_boardId) {
       cancelled = true;
       if (channelRef.current) supabase.removeChannel(channelRef.current);
     };
-  }, [_boardId]);
+  }, [_boardId, refreshTrigger]); // Re-run if board ID or settings change
 
   return { workflows, steps, cards, loading, error };
 }

@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { SettingsModal } from './SettingsModal';
 
 const COLUMNS = [
   { key: 'new', label: 'New / Triggered' },
@@ -22,6 +23,8 @@ export function getCardStatus(card) {
 }
 
 export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) {
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
   const [hideEmpty, setHideEmpty] = useState(() => {
     const saved = localStorage.getItem('pco_kanban_hideEmpty');
     return saved !== null ? JSON.parse(saved) : !interactive;
@@ -71,6 +74,8 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
 
   return (
     <div className={`w-full h-full min-h-screen overflow-y-auto ${bgMain}`}>
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} darkMode={darkMode} />
+
       {interactive && (
         <div className={`flex items-center justify-between p-4 border-b shadow-sm transition-colors ${
           darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-gray-300 text-gray-800'
@@ -80,10 +85,14 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
               <input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500 bg-transparent border-gray-400" />
               Hide Empty Workflows
             </label>
-            <label className="flex items-center gap-2 cursor-pointer text-sm font-semibold select-none hover:text-indigo-500 transition-colors">
+            <label className="flex items-center gap-2 cursor-pointer text-sm font-semibold select-none hover:text-indigo-500 transition-colors border-r border-gray-300 dark:border-slate-700 pr-6">
               <input type="checkbox" checked={darkMode} onChange={(e) => setDarkMode(e.target.checked)} className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500 bg-transparent border-gray-400" />
               Dark Mode
             </label>
+
+            <button onClick={() => setIsSettingsOpen(true)} className="text-gray-400 hover:text-indigo-600 dark:text-slate-500 dark:hover:text-indigo-400 transition-colors" title="Board Settings">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            </button>
           </div>
           
           <button
@@ -179,7 +188,8 @@ function KanbanCard({ card, steps, interactive, workflowPcoId }) {
   const { isOverdue, isSnoozed } = getCardStatus(card);
 
   let colorClasses = "bg-[#fefce8] text-gray-800 border-[#fde047]/60"; 
-  if (isOverdue) colorClasses = "bg-rose-50 text-rose-950 border-rose-300/80"; 
+  if (card.board_column === 'completed') colorClasses = "bg-emerald-50 text-emerald-950 border-emerald-300/80"; 
+  else if (isOverdue) colorClasses = "bg-rose-50 text-rose-950 border-rose-300/80"; 
   else if (isSnoozed) colorClasses = "bg-slate-100 text-slate-600 border-slate-300/80 opacity-80"; 
 
   const baseClasses = `relative rounded-sm px-4 py-3 shadow-md ${tilt} transition-all duration-200 border-t border-l border-white/60 border-b border-r`;
@@ -190,23 +200,22 @@ function KanbanCard({ card, steps, interactive, workflowPcoId }) {
   const CardContent = (
     <div className={`${baseClasses} ${colorClasses} ${hoverClasses} ${flaggedClasses}`}>
       <div className="flex items-start justify-between gap-2">
-        <div className={`font-bold text-[15px] leading-tight pt-1 ${isOverdue ? 'text-rose-950' : isSnoozed ? 'text-slate-700' : 'text-gray-900'}`}>
+        <div className={`font-bold text-[15px] leading-tight pt-1 ${isOverdue && card.board_column !== 'completed' ? 'text-rose-950' : isSnoozed && card.board_column !== 'completed' ? 'text-slate-700' : 'text-gray-900'}`}>
           {card.person_name}
         </div>
         {card.person_avatar_url && (
-          <img src={card.person_avatar_url} alt={card.person_name} className={`w-9 h-9 rounded-full border shadow-sm shrink-0 object-cover ${isOverdue ? 'border-rose-200' : isSnoozed ? 'border-slate-300 grayscale opacity-70' : 'border-gray-300'}`} />
+          <img src={card.person_avatar_url} alt={card.person_name} className={`w-9 h-9 rounded-full border shadow-sm shrink-0 object-cover ${isOverdue && card.board_column !== 'completed' ? 'border-rose-200' : isSnoozed && card.board_column !== 'completed' ? 'border-slate-300 grayscale opacity-70' : 'border-gray-300'}`} />
         )}
       </div>
       
       {stepName && (
-        <div className={`text-[11px] font-bold mt-1 uppercase tracking-wider ${isOverdue ? 'text-rose-700/80' : isSnoozed ? 'text-slate-500' : 'text-indigo-700/80'}`}>
+        <div className={`text-[11px] font-bold mt-1 uppercase tracking-wider ${isOverdue && card.board_column !== 'completed' ? 'text-rose-700/80' : isSnoozed && card.board_column !== 'completed' ? 'text-slate-500' : card.board_column === 'completed' ? 'text-emerald-700/80' : 'text-indigo-700/80'}`}>
           {stepName}
         </div>
       )}
 
-      {/* Reorganized Bottom Row with Badges */}
       <div className="mt-3 flex items-end justify-between gap-2">
-        <div className={`flex-1 flex items-center gap-1.5 text-xs font-semibold ${isOverdue ? 'text-rose-800/70' : isSnoozed ? 'text-slate-500' : 'text-gray-600'}`}>
+        <div className={`flex-1 flex items-center gap-1.5 text-xs font-semibold ${isOverdue && card.board_column !== 'completed' ? 'text-rose-800/70' : isSnoozed && card.board_column !== 'completed' ? 'text-slate-500' : 'text-gray-600'}`}>
           {card.assignee_name && (
             <>
               <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
@@ -215,7 +224,7 @@ function KanbanCard({ card, steps, interactive, workflowPcoId }) {
           )}
         </div>
         
-        {(isOverdue || isSnoozed) && (
+        {((isOverdue || isSnoozed) && card.board_column !== 'completed') && (
           <div className={`text-[10px] font-black tracking-widest uppercase px-2 py-1 rounded shadow-sm shrink-0 ${
             isOverdue ? 'text-rose-100 bg-rose-600' : 'text-slate-500 bg-slate-200/80'
           }`}>
