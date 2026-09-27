@@ -74,6 +74,12 @@ syncRouter.post('/', async (req, res) => {
       const activeCardPcoIds = [];
 
       for (const card of cardsRes.data) {
+        // --- NEW FIX: Banish Removed Cards ---
+        if (card.attributes?.removed_at) {
+          console.log(`[SYNC] Card ${card.id} is removed in PCO. Skipping.`);
+          continue;
+        }
+
         activeCardPcoIds.push(card.id);
         const stepPcoId = card.relationships?.current_step?.data?.id ?? card.relationships?.step?.data?.id;
         const personPcoId = card.relationships?.person?.data?.id;
@@ -98,7 +104,6 @@ syncRouter.post('/', async (req, res) => {
             }
         } 
         
-        // FIX: Override column if card has been completed in PCO
         if (card.attributes?.completed_at) {
             boardColumn = 'completed';
         }
