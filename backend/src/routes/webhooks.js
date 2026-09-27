@@ -4,14 +4,14 @@ import { defaultColumnForStep } from '../lib/columnMapping.js';
 
 export const webhooksRouter = Router();
 
+// Updated to return the full JSON object to match sync.js
 async function fetchPco(endpoint) {
   const authHeader = 'Basic ' + Buffer.from(`${process.env.PCO_APP_ID}:${process.env.PCO_SECRET}`).toString('base64');
   const url = `https://api.planningcenteronline.com/people/v2${endpoint}`;
   try {
     const res = await fetch(url, { headers: { Authorization: authHeader } });
     if (!res.ok) return null;
-    const json = await res.json();
-    return json.data;
+    return await res.json();
   } catch (err) {
     console.error(`Error fetching PCO data from ${endpoint}:`, err);
     return null;
@@ -80,28 +80,40 @@ async function handlePcoEvent(event) {
 // ---------------------------------------------------------
 
 async function upsertCardFromPayload(payload) {
-  const card = payload.data;
+  let card = payload.data;
   
-  // --- NEW FIX: Banish Removed Cards ---
-  // If the webhook payload indicates the card was removed in PCO, delete it from our DB
+  // Banish Removed Cards (Early check from webhook payload)
   if (card.attributes?.removed_at) {
     await supabase.from('pc_workflow_cards').delete().eq('pco_id', card.id);
     return;
   }
   
   const workflowPcoId = card.relationships?.workflow?.data?.id;
+  if (!workflowPcoId) throw new Error(`Payload missing workflow relationship`);
+
+  // FETCH FRESH CARD TO GUARANTEE COMPLETION STATUS AND AVOID SPARSE PAYLOADS
+  const freshRes = await fetchPco(`/workflows/${workflowPcoId}/cards/${card.id}?include=person,assignee`);
+  if (freshRes && freshRes.data) {
+    card = freshRes.data; // OVERRIDE WEBHOOK PAYLOAD WITH ABSOLUTE TRUTH FROM PCO
+  }
+  
+  // Check again in case it was removed right as the webhook fired
+  if (card.attributes?.removed_at) {
+    await supabase.from('pc_workflow_cards').delete().eq('pco_id', card.id);
+    return;
+  }
+
+  const included = freshRes?.included || [];
   const stepPcoId = card.relationships?.current_step?.data?.id ?? card.relationships?.step?.data?.id;
   const personPcoId = card.relationships?.person?.data?.id;
   const assigneePcoId = card.relationships?.assignee?.data?.id;
 
-  if (!workflowPcoId) throw new Error(`Payload missing workflow relationship`);
-
   let { data: workflow } = await supabase.from('pc_workflow_workflows').select('*').eq('pco_id', workflowPcoId).maybeSingle();
   if (!workflow) {
-    const pcoWf = await fetchPco(`/workflows/${workflowPcoId}`);
+    const pcoWfRes = await fetchPco(`/workflows/${workflowPcoId}`);
     const { data: newWf, error: wfErr } = await supabase.from('pc_workflow_workflows').insert({
       pco_id: workflowPcoId,
-      name: pcoWf?.attributes?.name ?? `Workflow ${workflowPcoId}`,
+      name: pcoWfRes?.data?.attributes?.name ?? `Workflow ${workflowPcoId}`,
       is_active: true
     }).select().single();
     if (wfErr) throw wfErr;
@@ -118,9 +130,9 @@ async function upsertCardFromPayload(payload) {
       stepRowId = existingStep.id;
       boardColumn = existingStep.board_column;
     } else {
-      const pcoStep = await fetchPco(`/workflows/${workflowPcoId}/steps/${stepPcoId}`);
-      const stepName = pcoStep?.attributes?.name ?? `Step ${stepPcoId}`;
-      const stepPosition = pcoStep?.attributes?.sequence ?? 0;
+      const pcoStepRes = await fetchPco(`/workflows/${workflowPcoId}/steps/${stepPcoId}`);
+      const stepName = pcoStepRes?.data?.attributes?.name ?? `Step ${stepPcoId}`;
+      const stepPosition = pcoStepRes?.data?.attributes?.sequence ?? 0;
       boardColumn = defaultColumnForStep({ name: stepName, position: stepPosition });
       
       const { data: newStep, error: stepErr } = await supabase.from('pc_workflow_steps').insert({
@@ -135,25 +147,33 @@ async function upsertCardFromPayload(payload) {
     }
   } 
   
+  // Enforce completed state
   if (card.attributes?.completed_at) {
     boardColumn = 'completed';
   }
 
-  let personName = 'Unknown';
-  let personAvatar = null;
-  if (personPcoId) {
-    const pcoPerson = await fetchPco(`/people/${personPcoId}`);
-    if (pcoPerson) {
-      personName = pcoPerson.attributes?.name ?? `${pcoPerson.attributes?.first_name} ${pcoPerson.attributes?.last_name}`;
-      personAvatar = pcoPerson.attributes?.avatar ?? null;
+  // Use the included data from the fresh fetch to avoid extra API hits
+  const personInc = included.find(i => i.type === 'Person' && i.id === personPcoId);
+  let personName = personInc?.attributes?.name;
+  let personAvatar = personInc?.attributes?.avatar;
+  
+  if (!personName && personPcoId) {
+    const pcoPersonRes = await fetchPco(`/people/${personPcoId}`);
+    if (pcoPersonRes?.data) {
+      personName = pcoPersonRes.data.attributes?.name ?? `${pcoPersonRes.data.attributes?.first_name} ${pcoPersonRes.data.attributes?.last_name}`;
+      personAvatar = pcoPersonRes.data.attributes?.avatar ?? null;
+    } else {
+      personName = 'Unknown';
     }
   }
 
-  let assigneeName = null;
-  if (assigneePcoId) {
-    const pcoAssignee = await fetchPco(`/people/${assigneePcoId}`);
-    if (pcoAssignee) {
-      assigneeName = pcoAssignee.attributes?.name ?? `${pcoAssignee.attributes?.first_name} ${pcoAssignee.attributes?.last_name}`;
+  const assigneeInc = included.find(i => i.type === 'Person' && i.id === assigneePcoId);
+  let assigneeName = assigneeInc?.attributes?.name;
+
+  if (!assigneeName && assigneePcoId) {
+    const pcoAssigneeRes = await fetchPco(`/people/${assigneePcoId}`);
+    if (pcoAssigneeRes?.data) {
+      assigneeName = pcoAssigneeRes.data.attributes?.name ?? `${pcoAssigneeRes.data.attributes?.first_name} ${pcoAssigneeRes.data.attributes?.last_name}`;
     }
   }
 
@@ -161,12 +181,13 @@ async function upsertCardFromPayload(payload) {
     pco_id: card.id,
     workflow_id: workflow.id,
     step_id: stepRowId,
+    boardColumn: boardColumn, // Fixed naming here previously
     board_column: boardColumn,
     person_pco_id: personPcoId,
-    person_name: personName,
-    person_avatar_url: personAvatar,
+    person_name: personName || 'Unknown',
+    person_avatar_url: personAvatar || null,
     assignee_pco_id: assigneePcoId,
-    assignee_name: assigneeName,
+    assignee_name: assigneeName || null,
     note: card.attributes?.note ?? null,
     snoozed_until: card.attributes?.snooze_until ?? null,
     flagged: card.attributes?.flagged ?? false,
@@ -249,20 +270,13 @@ async function updatePersonFromPayload(payload) {
   const personName = person.attributes?.name ?? `${person.attributes?.first_name} ${person.attributes?.last_name}`;
   const personAvatar = person.attributes?.avatar ?? null;
 
-  // Update their info if they are the primary person on the card
   await supabase
     .from('pc_workflow_cards')
-    .update({
-      person_name: personName,
-      person_avatar_url: personAvatar
-    })
+    .update({ person_name: personName, person_avatar_url: personAvatar })
     .eq('person_pco_id', personPcoId);
 
-  // Update their info if they are the assignee on the card
   await supabase
     .from('pc_workflow_cards')
-    .update({
-      assignee_name: personName
-    })
+    .update({ assignee_name: personName })
     .eq('assignee_pco_id', personPcoId);
 }
