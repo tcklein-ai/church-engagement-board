@@ -96,7 +96,10 @@ syncRouter.post('/', async (req, res) => {
                 stepRowId = st.id;
                 boardColumn = st.board_column;
             }
-        } else if (card.attributes?.completed_at) {
+        } 
+        
+        // FIX: Override column if card has been completed in PCO
+        if (card.attributes?.completed_at) {
             boardColumn = 'completed';
         }
 
