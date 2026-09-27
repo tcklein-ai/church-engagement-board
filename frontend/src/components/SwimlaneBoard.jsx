@@ -23,6 +23,7 @@ export function getCardStatus(card) {
 
 export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isGlobalDrawerOpen, setIsGlobalDrawerOpen] = useState(false);
 
   const [hideEmpty, setHideEmpty] = useState(() => {
     const saved = localStorage.getItem('pco_kanban_hideEmpty');
@@ -46,6 +47,12 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
       (map[key] ??= []).push(card);
     }
     return map;
+  }, [cards]);
+
+  const globalCompletedCards = useMemo(() => {
+    return cards
+      .filter(c => c.board_column === 'completed')
+      .sort((a, b) => new Date(b.pco_updated_at || 0) - new Date(a.pco_updated_at || 0));
   }, [cards]);
 
   const sortedWorkflows = useMemo(() => {
@@ -75,6 +82,42 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
     <div className={`w-full h-full min-h-screen overflow-y-auto ${bgMain}`}>
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} darkMode={darkMode} />
 
+      {/* Global Completed Drawer */}
+      {isGlobalDrawerOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm transition-opacity" onClick={() => setIsGlobalDrawerOpen(false)}></div>
+          <div className={`relative w-[400px] h-full shadow-2xl flex flex-col transform transition-transform duration-300 ${darkMode ? 'bg-slate-900 border-l border-slate-700' : 'bg-gray-50 border-l border-gray-300'}`}>
+            <div className={`p-5 border-b flex items-center justify-between ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}>
+              <h2 className={`text-lg font-bold flex items-center gap-2 ${darkMode ? 'text-slate-200' : 'text-gray-800'}`}>
+                <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
+                Global Archive
+              </h2>
+              <button onClick={() => setIsGlobalDrawerOpen(false)} className="text-gray-400 hover:text-red-500 transition-colors">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-5 custom-scrollbar">
+              {globalCompletedCards.length === 0 ? (
+                <div className="text-center text-gray-500 mt-10">No completed cards in the history timeframe.</div>
+              ) : (
+                globalCompletedCards.map(card => {
+                  const wf = workflows.find(w => w.id === card.workflow_id);
+                  return (
+                    <div key={card.id} className="relative">
+                      <div className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: wf?.color ?? '#6366f1' }}></div>
+                        {wf?.name}
+                      </div>
+                      <KanbanCard card={card} steps={steps} interactive={interactive} workflowPcoId={wf?.pco_id} />
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {interactive && (
         <div className={`flex items-center justify-between p-4 border-b shadow-sm transition-colors ${
           darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-gray-300 text-gray-800'
@@ -88,25 +131,32 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
               <input type="checkbox" checked={darkMode} onChange={(e) => setDarkMode(e.target.checked)} className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500 bg-transparent border-gray-400" />
               Dark Mode
             </label>
-
-            <button onClick={() => setIsSettingsOpen(true)} className="text-gray-400 hover:text-indigo-600 dark:text-slate-500 dark:hover:text-indigo-400 transition-colors" title="Board Settings">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-            </button>
           </div>
           
-          <button
-            onClick={async (e) => {
-              const btn = e.currentTarget;
-              btn.disabled = true;
-              btn.innerHTML = 'Syncing...';
-              try { await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/sync`, { method: 'POST' }); } 
-              catch (err) { console.error(err); } 
-              finally { btn.disabled = false; btn.innerHTML = 'Force PCO Sync'; }
-            }}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded shadow transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-          >
-            Force PCO Sync
-          </button>
+          <div className="flex items-center gap-4">
+            <button onClick={() => setIsGlobalDrawerOpen(true)} className="flex items-center gap-2 px-4 py-1.5 bg-emerald-100 text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400 dark:hover:bg-emerald-900/70 border border-emerald-200 dark:border-emerald-800 rounded-full text-sm font-bold shadow-sm transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
+              {globalCompletedCards.length} Completed
+            </button>
+
+            <button onClick={() => setIsSettingsOpen(true)} className="text-gray-400 hover:text-indigo-600 dark:text-slate-500 dark:hover:text-indigo-400 transition-colors border-l border-gray-300 dark:border-slate-700 pl-4" title="Board Settings">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            </button>
+
+            <button
+              onClick={async (e) => {
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                btn.innerHTML = 'Syncing...';
+                try { await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/sync`, { method: 'POST' }); } 
+                catch (err) { console.error(err); } 
+                finally { btn.disabled = false; btn.innerHTML = 'Force PCO Sync'; }
+              }}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded shadow transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ml-2"
+            >
+              Force PCO Sync
+            </button>
+          </div>
         </div>
       )}
 
@@ -133,16 +183,25 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
         {sortedWorkflows.map((workflow, index) => {
           const isEven = index % 2 === 0;
           const rowBg = darkMode ? (isEven ? 'bg-slate-800/40' : 'bg-slate-900/40') : (isEven ? 'bg-white' : 'bg-gray-100/50');
+          const completedForThisWf = cardsByWorkflowAndColumn[`${workflow.id}:completed`] || [];
           
           return (
             <div key={workflow.id} className="grid items-stretch border-b" style={{ gridTemplateColumns: `250px repeat(${COLUMNS.length}, 1fr)`, borderColor: borderGrid }}>
-              <div className={`px-5 py-4 font-semibold flex items-center border-r transition-colors shadow-[4px_0_10px_-5px_rgba(0,0,0,0.05)] ${bgLeftCol} hover:bg-indigo-50 dark:hover:bg-indigo-900/40`} style={{ borderLeft: `6px solid ${workflow.color ?? '#6366f1'}`, borderColor: borderGrid }}>
+              <div className={`px-5 py-4 flex flex-col justify-center border-r transition-colors shadow-[4px_0_10px_-5px_rgba(0,0,0,0.05)] ${bgLeftCol} hover:bg-indigo-50 dark:hover:bg-indigo-900/40`} style={{ borderLeft: `6px solid ${workflow.color ?? '#6366f1'}`, borderColor: borderGrid }}>
                 {interactive ? (
-                  <Link to={`/board/default/workflow/${workflow.pco_id}`} className="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer block w-full leading-snug">
+                  <Link to={`/board/default/workflow/${workflow.pco_id}`} className="font-semibold hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer block w-full leading-snug">
                     {workflow.name}
                   </Link>
                 ) : (
-                  <span className="leading-snug">{workflow.name}</span>
+                  <span className="font-semibold leading-snug">{workflow.name}</span>
+                )}
+                
+                {/* NEW FIX: Sub-badge in the left column showing completed count */}
+                {completedForThisWf.length > 0 && (
+                  <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-500">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
+                    {completedForThisWf.length} Completed
+                  </div>
                 )}
               </div>
               {COLUMNS.map((col) => (
