@@ -71,7 +71,10 @@ syncRouter.post('/', async (req, res) => {
       const included = cardsRes.included || [];
       console.log(`[SYNC] Found ${cardsRes.data.length} cards for Workflow ${wf.id}`);
       
+      const activeCardPcoIds = [];
+
       for (const card of cardsRes.data) {
+        activeCardPcoIds.push(card.id);
         const stepPcoId = card.relationships?.current_step?.data?.id ?? card.relationships?.step?.data?.id;
         const personPcoId = card.relationships?.person?.data?.id;
         const assigneePcoId = card.relationships?.assignee?.data?.id;
@@ -119,6 +122,25 @@ syncRouter.post('/', async (req, res) => {
         }, { onConflict: 'pco_id', ignoreDuplicates: false });
         
         if (cardErr) console.error(`[SYNC DB ERROR] Failed to upsert card ${card.id}:`, cardErr);
+      }
+
+      // CLEANUP ORPHANED CARDS
+      console.log(`[SYNC] Cleaning up orphaned cards for Workflow ${wf.id}...`);
+      if (activeCardPcoIds.length > 0) {
+        const { error: cleanupErr } = await supabase
+          .from('pc_workflow_cards')
+          .delete()
+          .eq('workflow_id', dbWf.id)
+          .not('pco_id', 'in', `(${activeCardPcoIds.join(',')})`);
+        
+        if (cleanupErr) console.error(`[SYNC DB ERROR] Failed to clean up cards:`, cleanupErr);
+      } else {
+        const { error: cleanupErr } = await supabase
+          .from('pc_workflow_cards')
+          .delete()
+          .eq('workflow_id', dbWf.id);
+          
+        if (cleanupErr) console.error(`[SYNC DB ERROR] Failed to clean up cards:`, cleanupErr);
       }
     }
     
