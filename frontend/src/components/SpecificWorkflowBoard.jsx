@@ -14,7 +14,13 @@ export function SpecificWorkflowBoard({ workflows, steps, cards, workflowPcoId }
 
   const activeSteps = useMemo(() => {
     if (!workflow) return [];
-    return steps.filter((s) => s.workflow_id === workflow.id).sort((a, b) => a.position - b.position);
+    const dbSteps = steps.filter((s) => s.workflow_id === workflow.id).sort((a, b) => a.position - b.position);
+    
+    // --- FIX: Inject a dedicated Completed column at the far right ---
+    return [
+      ...dbSteps,
+      { id: 'completed-column', name: 'Completed' }
+    ];
   }, [steps, workflow]);
 
   const cardsByStep = useMemo(() => {
@@ -22,7 +28,13 @@ export function SpecificWorkflowBoard({ workflows, steps, cards, workflowPcoId }
     if (!workflow) return map;
     const wfCards = cards.filter((c) => c.workflow_id === workflow.id);
     for (const card of wfCards) {
-      const key = card.step_id || 'unassigned';
+      let key = card.step_id || 'unassigned';
+      
+      // --- FIX: Force fully completed cards into the injected Completed column ---
+      if (card.board_column === 'completed') {
+        key = 'completed-column';
+      }
+      
       (map[key] ??= []).push(card);
     }
     return map;
@@ -105,7 +117,8 @@ function SpecificKanbanCard({ card, steps, workflowPcoId }) {
   const { isOverdue, isSnoozed } = getCardStatus(card);
 
   let colorClasses = "bg-[#fefce8] text-gray-800 border-[#fde047]/60"; 
-  if (isOverdue) colorClasses = "bg-rose-50 text-rose-950 border-rose-300/80"; 
+  if (card.board_column === 'completed') colorClasses = "bg-emerald-50 text-emerald-950 border-emerald-300/80"; // Bonus finish formatting!
+  else if (isOverdue) colorClasses = "bg-rose-50 text-rose-950 border-rose-300/80"; 
   else if (isSnoozed) colorClasses = "bg-slate-100 text-slate-600 border-slate-300/80 opacity-80"; 
 
   const baseClasses = `relative rounded-sm px-4 py-3 shadow-md ${tilt} transition-all duration-200 border-t border-l border-white/60 border-b border-r block focus:outline-none outline-none`;
