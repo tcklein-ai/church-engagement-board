@@ -74,7 +74,6 @@ syncRouter.post('/', async (req, res) => {
       const activeCardPcoIds = [];
 
       for (const card of cardsRes.data) {
-        // --- NEW FIX: Banish Removed Cards ---
         if (card.attributes?.removed_at) {
           console.log(`[SYNC] Card ${card.id} is removed in PCO. Skipping.`);
           continue;
@@ -132,13 +131,14 @@ syncRouter.post('/', async (req, res) => {
         if (cardErr) console.error(`[SYNC DB ERROR] Failed to upsert card ${card.id}:`, cardErr);
       }
 
-      // CLEANUP ORPHANED CARDS
+      // CLEANUP ORPHANED CARDS (Do NOT delete completed cards)
       console.log(`[SYNC] Cleaning up orphaned cards for Workflow ${wf.id}...`);
       if (activeCardPcoIds.length > 0) {
         const { error: cleanupErr } = await supabase
           .from('pc_workflow_cards')
           .delete()
           .eq('workflow_id', dbWf.id)
+          .neq('board_column', 'completed')
           .not('pco_id', 'in', `(${activeCardPcoIds.join(',')})`);
         
         if (cleanupErr) console.error(`[SYNC DB ERROR] Failed to clean up cards:`, cleanupErr);
@@ -146,7 +146,8 @@ syncRouter.post('/', async (req, res) => {
         const { error: cleanupErr } = await supabase
           .from('pc_workflow_cards')
           .delete()
-          .eq('workflow_id', dbWf.id);
+          .eq('workflow_id', dbWf.id)
+          .neq('board_column', 'completed');
           
         if (cleanupErr) console.error(`[SYNC DB ERROR] Failed to clean up cards:`, cleanupErr);
       }

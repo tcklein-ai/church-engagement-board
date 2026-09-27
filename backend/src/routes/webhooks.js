@@ -4,7 +4,6 @@ import { defaultColumnForStep } from '../lib/columnMapping.js';
 
 export const webhooksRouter = Router();
 
-// Updated to return the full JSON object to match sync.js
 async function fetchPco(endpoint) {
   const authHeader = 'Basic ' + Buffer.from(`${process.env.PCO_APP_ID}:${process.env.PCO_SECRET}`).toString('base64');
   const url = `https://api.planningcenteronline.com/people/v2${endpoint}`;
@@ -44,7 +43,6 @@ async function handlePcoEvent(event) {
   if (!payload) return; 
 
   switch (eventName) {
-    // --- CARD EVENTS ---
     case 'people.v2.events.workflow_card.created':
     case 'people.v2.events.workflow_card.updated':
     case 'people.v2.events.workflow_card.step_ready':
@@ -52,21 +50,18 @@ async function handlePcoEvent(event) {
     case 'people.v2.events.workflow_card.destroyed':
       return deleteCardFromPayload(payload);
       
-    // --- WORKFLOW STRUCTURE EVENTS ---
     case 'people.v2.events.workflow.created':
     case 'people.v2.events.workflow.updated':
       return upsertWorkflowFromPayload(payload);
     case 'people.v2.events.workflow.destroyed':
       return deleteWorkflowFromPayload(payload);
       
-    // --- STEP STRUCTURE EVENTS ---
     case 'people.v2.events.workflow_step.created':
     case 'people.v2.events.workflow_step.updated':
       return upsertStepFromPayload(payload);
     case 'people.v2.events.workflow_step.destroyed':
       return deleteStepFromPayload(payload);
 
-    // --- PERSON PROFILE EVENTS ---
     case 'people.v2.events.person.updated':
       return updatePersonFromPayload(payload);
       
@@ -82,7 +77,6 @@ async function handlePcoEvent(event) {
 async function upsertCardFromPayload(payload) {
   let card = payload.data;
   
-  // Banish Removed Cards (Early check from webhook payload)
   if (card.attributes?.removed_at) {
     await supabase.from('pc_workflow_cards').delete().eq('pco_id', card.id);
     return;
@@ -91,13 +85,11 @@ async function upsertCardFromPayload(payload) {
   const workflowPcoId = card.relationships?.workflow?.data?.id;
   if (!workflowPcoId) throw new Error(`Payload missing workflow relationship`);
 
-  // FETCH FRESH CARD TO GUARANTEE COMPLETION STATUS AND AVOID SPARSE PAYLOADS
   const freshRes = await fetchPco(`/workflows/${workflowPcoId}/cards/${card.id}?include=person,assignee`);
   if (freshRes && freshRes.data) {
-    card = freshRes.data; // OVERRIDE WEBHOOK PAYLOAD WITH ABSOLUTE TRUTH FROM PCO
+    card = freshRes.data; 
   }
   
-  // Check again in case it was removed right as the webhook fired
   if (card.attributes?.removed_at) {
     await supabase.from('pc_workflow_cards').delete().eq('pco_id', card.id);
     return;
@@ -123,6 +115,13 @@ async function upsertCardFromPayload(payload) {
   let stepRowId = null;
   let boardColumn = 'new';
   
+  // PRESERVE EXISTING STEP ID IF PCO DROPS IT ON COMPLETION
+  const { data: existingCard } = await supabase.from('pc_workflow_cards').select('step_id, board_column').eq('pco_id', card.id).maybeSingle();
+  if (existingCard) {
+      stepRowId = existingCard.step_id;
+      boardColumn = existingCard.board_column;
+  }
+  
   if (stepPcoId) {
     let { data: existingStep } = await supabase.from('pc_workflow_steps').select('*').eq('workflow_id', workflow.id).eq('pco_id', stepPcoId).maybeSingle();
     
@@ -147,12 +146,10 @@ async function upsertCardFromPayload(payload) {
     }
   } 
   
-  // Enforce completed state
   if (card.attributes?.completed_at) {
     boardColumn = 'completed';
   }
 
-  // Use the included data from the fresh fetch to avoid extra API hits
   const personInc = included.find(i => i.type === 'Person' && i.id === personPcoId);
   let personName = personInc?.attributes?.name;
   let personAvatar = personInc?.attributes?.avatar;
@@ -181,7 +178,6 @@ async function upsertCardFromPayload(payload) {
     pco_id: card.id,
     workflow_id: workflow.id,
     step_id: stepRowId,
-    boardColumn: boardColumn, // Fixed naming here previously
     board_column: boardColumn,
     person_pco_id: personPcoId,
     person_name: personName || 'Unknown',
