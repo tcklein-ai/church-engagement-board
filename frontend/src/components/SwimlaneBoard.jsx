@@ -6,7 +6,6 @@ const COLUMNS = [
   { key: 'new', label: 'New / Triggered' },
   { key: 'action_required', label: 'Action Required' },
   { key: 'waiting', label: 'Waiting / Snoozed' },
-  { key: 'completed', label: 'Completed' },
 ];
 
 export function getCardStatus(card) {
@@ -51,7 +50,7 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
 
   const sortedWorkflows = useMemo(() => {
     let wfs = workflows;
-    if (hideEmpty) wfs = wfs.filter(wf => cards.some(c => c.workflow_id === wf.id));
+    if (hideEmpty) wfs = wfs.filter(wf => cards.some(c => c.workflow_id === wf.id && c.board_column !== 'completed'));
     if (sortCol) {
       wfs = [...wfs].sort((a, b) => {
         const aCount = (cardsByWorkflowAndColumn[`${a.id}:${sortCol}`] || []).length;
