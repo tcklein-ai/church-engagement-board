@@ -26,4 +26,11 @@ app.use('/api/sync', syncRouter);
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`PCO Kanban backend listening on :${port}`));
+app.listen(port, () => {
+  console.log(`PCO Kanban backend listening on :${port}`);
+  
+  // Auto-Sync on Boot: Catch any webhooks missed while the server was asleep
+  console.log('Initiating automatic startup sync...');
+  fetch(`http://localhost:${port}/api/sync`, { method: 'POST' })
+    .catch(err => console.error('Failed to trigger startup sync:', err));
+});
