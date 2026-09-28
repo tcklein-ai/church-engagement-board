@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-
 import { SwimlaneBoard } from './components/SwimlaneBoard';
 import { SpecificWorkflowBoard } from './components/SpecificWorkflowBoard';
 import { useRealtimeBoard } from './hooks/useRealtimeBoard';
+import { Attendance } from './pages/Attendance';
 
 function MasterBoardView({ interactive }) {
   const { workflows, steps, cards, loading, error } = useRealtimeBoard();
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="/board/:id/tv" element={<MasterBoardView interactive={false} />} />
         <Route path="/board/:id/admin" element={<MasterBoardView interactive={true} />} />
         <Route path="/board/:id/workflow/:workflowPcoId" element={<SpecificWorkflowView />} />
+        <Route path="/attendance" element={<Attendance />} />
         <Route path="*" element={<Navigate to="/board/default/admin" replace />} />
       </Routes>
     </BrowserRouter>
