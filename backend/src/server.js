@@ -1,17 +1,22 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { webhooksRouter } from './routes/webhooks.js';
 import { cardsRouter } from './routes/cards.js';
 import { verifyPcoSignature } from './lib/verifyPcoSignature.js';
 import { syncRouter } from './routes/sync.js';
+import { authRouter } from './routes/auth.js';
 
 const app = express();
 
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN ?? '*' }));
+app.use(cors({ 
+  origin: process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173',
+  credentials: true 
+}));
 
-// The webhook route needs the RAW body to verify PCO's HMAC signature.
-// It is mounted BEFORE express.json() with its own raw-body parser.
+app.use(cookieParser());
+
 app.use(
   '/webhooks',
   express.raw({ type: 'application/json' }),
@@ -20,6 +25,8 @@ app.use(
 );
 
 app.use(express.json());
+
+app.use('/auth', authRouter);
 app.use('/api/cards', cardsRouter);
 app.use('/api/sync', syncRouter);
 
@@ -29,7 +36,6 @@ const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`PCO Kanban backend listening on :${port}`);
   
-  // Auto-Sync on Boot: Catch any webhooks missed while the server was asleep
   console.log('Initiating automatic startup sync...');
   fetch(`http://localhost:${port}/api/sync`, { method: 'POST' })
     .catch(err => console.error('Failed to trigger startup sync:', err));
