@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react';
 export function AppConfigModal({ isOpen, onClose }) {
   const [config, setConfig] = useState({
     workflow_id: '',
-    custom_tab_id: '',
     connect_1_field_id: '',
     connect_2_field_id: '',
     connect_3_field_id: '',
@@ -11,7 +10,6 @@ export function AppConfigModal({ isOpen, onClose }) {
   });
   
   const [workflows, setWorkflows] = useState([]);
-  const [tabs, setTabs] = useState([]);
   const [fields, setFields] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -23,16 +21,14 @@ export function AppConfigModal({ isOpen, onClose }) {
     Promise.all([
       fetch(`${import.meta.env.VITE_BACKEND_URL}/api/config`, { credentials: 'include' }).then(r => r.json()),
       fetch(`${import.meta.env.VITE_BACKEND_URL}/api/config/pco/workflows`, { credentials: 'include' }).then(r => r.json()),
-      fetch(`${import.meta.env.VITE_BACKEND_URL}/api/config/pco/field-tabs`, { credentials: 'include' }).then(r => r.json())
-    ]).then(([confData, wfData, tabData]) => {
+      fetch(`${import.meta.env.VITE_BACKEND_URL}/api/config/pco/field-definitions`, { credentials: 'include' }).then(r => r.json())
+    ]).then(([confData, wfData, fieldData]) => {
       if (confData && !confData.error) {
         setConfig(prev => ({ ...prev, ...confData }));
       }
       if (wfData && !wfData.error) setWorkflows(wfData);
-      if (tabData && !tabData.error) {
-        setTabs(tabData.tabs || []);
-        setFields(tabData.fields || []);
-      }
+      if (fieldData && !fieldData.error) setFields(fieldData);
+      
       setIsLoading(false);
     }).catch(err => {
       console.error('Failed to load config data:', err);
@@ -49,22 +45,15 @@ export function AppConfigModal({ isOpen, onClose }) {
         credentials: 'include',
         body: JSON.stringify(config)
       });
-      onClose();
+      // Force a page reload so the Attendance grid picks up the new IDs immediately
+      window.location.reload(); 
     } catch (err) {
       console.error('Failed to save config:', err);
-    } finally {
       setIsSaving(false);
     }
   };
 
   if (!isOpen) return null;
-
-  // Filter the fields dropdown to only show fields that belong to the selected Custom Tab
-  const availableFields = fields.filter(f => {
-    if (!config.custom_tab_id) return true;
-    const parentTabId = f.relationships?.field_tab?.data?.id;
-    return parentTabId === config.custom_tab_id;
-  });
 
   const selectClasses = "w-full mt-1 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors";
   const labelClasses = "block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400";
@@ -107,40 +96,25 @@ export function AppConfigModal({ isOpen, onClose }) {
               </div>
 
               {/* Custom Fields Mapping */}
-              <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700 space-y-4">
-                <div>
-                  <label className={labelClasses}>Profile Custom Tab</label>
-                  <select 
-                    value={config.custom_tab_id || ''} 
-                    onChange={e => setConfig({...config, custom_tab_id: e.target.value, connect_1_field_id: '', connect_2_field_id: '', connect_3_field_id: '', connect_4_field_id: ''})}
-                    className={selectClasses}
-                  >
-                    <option value="">-- Select Custom Field Tab --</option>
-                    {tabs.map(tab => (
-                      <option key={tab.id} value={tab.id}>{tab.attributes.name}</option>
-                    ))}
-                  </select>
+              <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-4 border-b border-slate-200 dark:border-slate-700 pb-2">Connect Track Milestones</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  {[1, 2, 3, 4].map(num => (
+                    <div key={num}>
+                      <label className={labelClasses}>Connect {num} Field</label>
+                      <select 
+                        value={config[`connect_${num}_field_id`] || ''} 
+                        onChange={e => setConfig({...config, [`connect_${num}_field_id`]: e.target.value})}
+                        className={selectClasses}
+                      >
+                        <option value="">-- Select Field --</option>
+                        {fields.map(field => (
+                          <option key={field.id} value={field.id}>{field.attributes.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
                 </div>
-
-                {config.custom_tab_id && (
-                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200 dark:border-slate-600">
-                    {[1, 2, 3, 4].map(num => (
-                      <div key={num}>
-                        <label className={labelClasses}>Connect {num} Field</label>
-                        <select 
-                          value={config[`connect_${num}_field_id`] || ''} 
-                          onChange={e => setConfig({...config, [`connect_${num}_field_id`]: e.target.value})}
-                          className={selectClasses}
-                        >
-                          <option value="">-- Select Field --</option>
-                          {availableFields.map(field => (
-                            <option key={field.id} value={field.id}>{field.attributes.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             </>
           )}
