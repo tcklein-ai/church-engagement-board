@@ -11,7 +11,6 @@ export function Attendance() {
     fetch(`${import.meta.env.VITE_BACKEND_URL}/api/attendance`, { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
-        // We will populate this from the backend shortly
         setAttendees(data.attendees || []); 
         setIsLoading(false);
       })
@@ -21,9 +20,26 @@ export function Attendance() {
       });
   }, []);
 
-  const handleCheck = (personId, classNumber, isChecked) => {
-    console.log(`Marking Connect ${classNumber} ${isChecked ? 'complete' : 'incomplete'} for person ${personId} by ${user.name}`);
-    // Next step: The write-back API call will fire here
+  const handleCheck = async (personId, classNumber, isChecked) => {
+    // 1. Optimistic UI update (feels instant)
+    setAttendees(prev => prev.map(p => {
+      if (p.id === personId) {
+        return { ...p, [`connect${classNumber}`]: isChecked };
+      }
+      return p;
+    }));
+
+    // 2. Fire the network request
+    try {
+      await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/attendance/mark`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ personId, classNumber, isChecked })
+      });
+    } catch (err) {
+      console.error('Failed to save checkmark:', err);
+    }
   };
 
   if (isLoading) {
