@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
+import { AppConfigModal } from './AppConfigModal';
 
 export function GlobalLayout() {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
   const location = useLocation();
 
   // Authentication Check
@@ -115,8 +117,14 @@ export function GlobalLayout() {
             </button>
 
             {user?.isAppAdmin && (
-               <span className="px-2 py-1 text-xs font-bold bg-indigo-800 dark:bg-indigo-900/50 text-indigo-100 dark:text-indigo-300 rounded border border-indigo-700 dark:border-indigo-800">App Admin</span>
+              <button 
+                onClick={() => setIsConfigOpen(true)}
+                className="px-2 py-1 text-xs font-bold bg-indigo-800 dark:bg-indigo-900/50 text-indigo-100 dark:text-indigo-300 rounded border border-indigo-700 dark:border-indigo-800 hover:bg-indigo-700 dark:hover:bg-indigo-900 transition-colors"
+              >
+                App Admin
+              </button>
             )}
+            
             <div className="text-right">
               <div className="text-sm font-bold text-white dark:text-slate-100">{user?.name}</div>
               <span className={`px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide rounded border ${badgeColor}`}>
@@ -131,6 +139,8 @@ export function GlobalLayout() {
       <main className="flex-1 overflow-hidden relative">
         <Outlet context={{ user }} />
       </main>
+
+      <AppConfigModal isOpen={isConfigOpen} onClose={() => setIsConfigOpen(false)} />
     </div>
   );
 }
