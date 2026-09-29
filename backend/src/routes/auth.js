@@ -88,10 +88,10 @@ authRouter.get('/callback', async (req, res) => {
       { expiresIn: '2h' }
     );
 
-    res.cookie('pco_auth', sessionToken, {
+   res.cookie('pco_auth', sessionToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true, // Must be true for cross-domain cookies
+      sameSite: 'none', // Tells the browser it is allowed to cross domains
       maxAge: 2 * 60 * 60 * 1000 
     });
 
