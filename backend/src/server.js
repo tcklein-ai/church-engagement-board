@@ -7,6 +7,7 @@ import { cardsRouter } from './routes/cards.js';
 import { verifyPcoSignature } from './lib/verifyPcoSignature.js';
 import { syncRouter } from './routes/sync.js';
 import { authRouter } from './routes/auth.js';
+import { configRouter } from './routes/config.js';
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.use(express.json());
 app.use('/auth', authRouter);
 app.use('/api/cards', cardsRouter);
 app.use('/api/sync', syncRouter);
+app.use('/api/config', configRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
