@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { GlobalLayout } from './components/GlobalLayout';
 import { SwimlaneBoard } from './components/SwimlaneBoard';
 import { SpecificWorkflowBoard } from './components/SpecificWorkflowBoard';
 import { useRealtimeBoard } from './hooks/useRealtimeBoard';
@@ -42,11 +43,13 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/board/:id/tv" element={<MasterBoardView interactive={false} />} />
-        <Route path="/board/:id/admin" element={<MasterBoardView interactive={true} />} />
-        <Route path="/board/:id/workflow/:workflowPcoId" element={<SpecificWorkflowView />} />
-        <Route path="/attendance" element={<Attendance />} />
-        <Route path="*" element={<Navigate to="/board/default/admin" replace />} />
+        <Route element={<GlobalLayout />}>
+          <Route path="/board/:id/tv" element={<MasterBoardView interactive={false} />} />
+          <Route path="/board/:id/admin" element={<MasterBoardView interactive={true} />} />
+          <Route path="/board/:id/workflow/:workflowPcoId" element={<SpecificWorkflowView />} />
+          <Route path="/attendance" element={<Attendance />} />
+          <Route path="*" element={<Navigate to="/board/default/admin" replace />} />
+        </Route>
       </Routes>
     </BrowserRouter>
   );
