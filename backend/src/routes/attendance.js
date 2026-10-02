@@ -139,21 +139,27 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
         });
         const cardsData = await cardsRes.json();
         
-        const activeCard = (cardsData.data || []).find(c => c.attributes.stage !== 'complete');
+        const activeCard = (cardsData.data || []).find(c => c.attributes.stage !== 'completed');
 
         if (activeCard) {
           // Send the completion command to Planning Center
-          await fetch(`https://api.planningcenteronline.com/people/v2/workflows/${config.workflow_id}/cards/${activeCard.id}`, {
+          const completeRes = await fetch(`https://api.planningcenteronline.com/people/v2/workflows/${config.workflow_id}/cards/${activeCard.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${req.user.pco_access_token}` },
             body: JSON.stringify({
               data: {
                 type: "WorkflowCard",
-                attributes: { stage: "complete" }
+                attributes: { stage: "completed" }
               }
             })
           });
-          console.log(`Successfully completed workflow card ${activeCard.id} for person ${personId}`);
+          
+          if (!completeRes.ok) {
+            const errText = await completeRes.text();
+            console.error(`PCO rejected the completion command for card ${activeCard.id}:`, errText);
+          } else {
+            console.log(`Successfully completed workflow card ${activeCard.id} for person ${personId}`);
+          }
         }
       }
 
