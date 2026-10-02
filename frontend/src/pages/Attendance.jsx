@@ -5,6 +5,7 @@ export function Attendance() {
   const { user } = useOutletContext();
   const [attendees, setAttendees] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [toast, setToast] = useState(null);
 
   // Fetch live Connect Track attendees
   useEffect(() => {
@@ -20,8 +21,19 @@ export function Attendance() {
       });
   }, []);
 
+  const showToast = (message, type, duration = 4000) => {
+    if (window.toastTimeout) clearTimeout(window.toastTimeout);
+    setToast({ message, type });
+    if (type !== 'loading') {
+      window.toastTimeout = setTimeout(() => setToast(null), duration);
+    }
+  };
+
   const handleCheck = async (personId, classNumber, isChecked) => {
-    // 1. Optimistic UI update (feels instant)
+    // 1. Save previous state so we can roll back if the API fails
+    const previousAttendees = [...attendees];
+
+    // 2. Optimistic UI update
     setAttendees(prev => prev.map(p => {
       if (p.id === personId) {
         return { ...p, [`connect${classNumber}`]: isChecked };
@@ -29,16 +41,38 @@ export function Attendance() {
       return p;
     }));
 
-    // 2. Fire the network request
+    showToast('Syncing with Planning Center...', 'loading');
+
+    // 3. Fire the network request
     try {
-      await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/attendance/mark`, {
+      const res = await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/attendance/mark`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ personId, classNumber, isChecked })
       });
+      
+      const data = await res.json();
+
+      if (data.success) {
+        // Handle partial failure (Field saved, but Workflow Card didn't complete)
+        if (data.cardStatus?.attempted && !data.cardStatus?.success) {
+          showToast('Class saved, but failed to auto-complete workflow card.', 'warning', 6000);
+        } else if (data.cardStatus?.attempted && data.cardStatus?.success) {
+          showToast('Class saved & workflow card completed!', 'success');
+        } else {
+          showToast('Attendance saved.', 'success', 2500);
+        }
+      } else {
+        // Rollback the checkbox if the actual field data failed to save
+        setAttendees(previousAttendees);
+        showToast(data.error || 'Failed to save attendance.', 'error');
+      }
     } catch (err) {
       console.error('Failed to save checkmark:', err);
+      // Rollback on hard network error
+      setAttendees(previousAttendees);
+      showToast('Network error. Please try again.', 'error');
     }
   };
 
@@ -47,7 +81,7 @@ export function Attendance() {
   }
 
   return (
-    <div className="p-8 h-full overflow-y-auto bg-slate-50 dark:bg-slate-900 transition-colors duration-200">
+    <div className="p-8 h-full overflow-y-auto bg-slate-50 dark:bg-slate-900 transition-colors duration-200 relative">
       <div className="max-w-4xl mx-auto bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden mt-4 transition-colors duration-200">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -99,6 +133,30 @@ export function Attendance() {
           </table>
         </div>
       </div>
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed bottom-0 left-0 w-full md:bottom-6 md:left-auto md:right-6 md:w-auto md:min-w-[300px] md:rounded-lg shadow-[0_-4px_10px_rgba(0,0,0,0.1)] md:shadow-xl p-4 z-50 flex items-center gap-3 transition-colors duration-300 ${
+          toast.type === 'loading' ? 'bg-indigo-600 text-white' :
+          toast.type === 'success' ? 'bg-emerald-600 text-white' :
+          toast.type === 'warning' ? 'bg-amber-500 text-white' :
+          'bg-rose-600 text-white'
+        }`}>
+          {toast.type === 'loading' && (
+            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+          )}
+          {toast.type === 'success' && (
+            <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
+          )}
+          {toast.type === 'warning' && (
+            <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+          )}
+          {toast.type === 'error' && (
+            <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          )}
+          <span className="font-bold text-sm tracking-wide">{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 }
