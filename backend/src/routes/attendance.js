@@ -142,14 +142,18 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
         const activeCard = (cardsData.data || []).find(c => c.attributes.stage !== 'completed');
 
         if (activeCard) {
-          // Remove the card from its current step to trigger PCO's auto-completion
+          // Remove the card from its current step via the relationships block to trigger auto-completion
           const completeRes = await fetch(`https://api.planningcenteronline.com/people/v2/workflows/${config.workflow_id}/cards/${activeCard.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${req.user.pco_access_token}` },
             body: JSON.stringify({
               data: {
                 type: "WorkflowCard",
-                attributes: { step_id: null }
+                relationships: {
+                  step: {
+                    data: null
+                  }
+                }
               }
             })
           });
