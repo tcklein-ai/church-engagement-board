@@ -84,7 +84,6 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
 
     if (!targetFieldDefId) return res.status(400).json({ error: 'Custom field not configured' });
 
-    // See if the field already exists for this person, and grab all their other fields simultaneously
     const existingRes = await fetch(`https://api.planningcenteronline.com/people/v2/people/${personId}/field_data`, {
       headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
     });
@@ -93,7 +92,10 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
     
     const existingTargetField = existingFields.find(f => f.relationships?.field_definition?.data?.id === String(targetFieldDefId));
 
-    const today = new Date().toISOString().split('T')[0]; // Clean YYYY-MM-DD format
+    const today = new Date().toISOString().split('T')[0];
+    
+    // We will track the success of the workflow card step specifically
+    let cardStatus = { attempted: false, success: false, error: null };
 
     if (isChecked) {
       // 1. Update or Create the specific Connect Class field
@@ -121,19 +123,17 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
         config.connect_4_field_id
       ];
 
-      // Filter out the class we JUST checked, so we are only looking at the other 3
       const otherIds = requiredIds.filter(id => id && String(id) !== String(targetFieldDefId));
 
-      // Verify that every single one of those other 3 fields has a value in PCO
       const allOthersCompleted = otherIds.every(id => {
         const f = existingFields.find(ef => ef.relationships?.field_definition?.data?.id === String(id));
         return f && f.attributes && f.attributes.value;
       });
 
       if (allOthersCompleted && otherIds.length === 3) {
+        cardStatus.attempted = true;
         console.log(`Person ${personId} has completed all 4 classes. Locating workflow card...`);
         
-        // Find their specific card in the Connect Track workflow
         const cardsRes = await fetch(`https://api.planningcenteronline.com/people/v2/workflows/${config.workflow_id}/cards?where[person_id]=${personId}`, {
           headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
         });
@@ -142,7 +142,6 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
         const activeCard = (cardsData.data || []).find(c => c.attributes.stage !== 'completed');
 
         if (activeCard) {
-          // Nullify the relationship object directly to trigger PCO completion
           const completeRes = await fetch(`https://api.planningcenteronline.com/people/v2/workflows/${config.workflow_id}/cards/${activeCard.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${req.user.pco_access_token}` },
@@ -160,16 +159,19 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
           });
           
           if (!completeRes.ok) {
-            const errText = await completeRes.text();
-            console.error(`PCO rejected the completion command for card ${activeCard.id}:`, errText);
+            cardStatus.error = await completeRes.text();
+            console.error(`PCO rejected the completion command for card ${activeCard.id}:`, cardStatus.error);
           } else {
+            cardStatus.success = true;
             console.log(`Successfully completed workflow card ${activeCard.id} for person ${personId}`);
           }
+        } else {
+          // If no active card is found, we consider it a success (they are already completed or removed)
+          cardStatus.success = true; 
         }
       }
 
     } else {
-      // If unchecked, delete the field data entirely
       if (existingTargetField) {
          await fetch(`https://api.planningcenteronline.com/people/v2/field_data/${existingTargetField.id}`, {
            method: 'DELETE',
@@ -178,7 +180,7 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
       }
     }
 
-    res.json({ success: true });
+    res.json({ success: true, cardStatus });
   } catch (err) {
     console.error('Error marking attendance:', err);
     res.status(500).json({ error: 'Failed to update attendance' });
