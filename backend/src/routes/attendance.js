@@ -74,7 +74,7 @@ attendanceRouter.get('/', requireAdmin, async (req, res) => {
   }
 });
 
-// POST: Write a checkbox interaction back to Planning Center
+// POST: Write a checkbox interaction back to Planning Center and Auto-Complete
 attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
   try {
     const { personId, classNumber, isChecked } = req.body;
@@ -84,25 +84,26 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
 
     if (!targetFieldDefId) return res.status(400).json({ error: 'Custom field not configured' });
 
-    // See if the field already exists for this person
+    // See if the field already exists for this person, and grab all their other fields simultaneously
     const existingRes = await fetch(`https://api.planningcenteronline.com/people/v2/people/${personId}/field_data`, {
       headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
     });
     const existingData = await existingRes.json();
-    const existingField = (existingData.data || []).find(f => f.relationships?.field_definition?.data?.id === String(targetFieldDefId));
+    const existingFields = existingData.data || [];
+    
+    const existingTargetField = existingFields.find(f => f.relationships?.field_definition?.data?.id === String(targetFieldDefId));
 
-    const today = new Date().toISOString().split('T')[0]; // Creates a clean YYYY-MM-DD string
+    const today = new Date().toISOString().split('T')[0]; // Clean YYYY-MM-DD format
 
     if (isChecked) {
-      if (existingField) {
-        // Update existing field
-        await fetch(`https://api.planningcenteronline.com/people/v2/field_data/${existingField.id}`, {
+      // 1. Update or Create the specific Connect Class field
+      if (existingTargetField) {
+        await fetch(`https://api.planningcenteronline.com/people/v2/field_data/${existingTargetField.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${req.user.pco_access_token}` },
           body: JSON.stringify({ data: { type: "FieldData", attributes: { value: today } } })
         });
       } else {
-        // Create new field
         await fetch(`https://api.planningcenteronline.com/people/v2/people/${personId}/field_data`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${req.user.pco_access_token}` },
@@ -111,10 +112,55 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
           })
         });
       }
+
+      // 2. THE AUTO-COMPLETE LOGIC
+      const requiredIds = [
+        config.connect_1_field_id,
+        config.connect_2_field_id,
+        config.connect_3_field_id,
+        config.connect_4_field_id
+      ];
+
+      // Filter out the class we JUST checked, so we are only looking at the other 3
+      const otherIds = requiredIds.filter(id => id && String(id) !== String(targetFieldDefId));
+
+      // Verify that every single one of those other 3 fields has a value in PCO
+      const allOthersCompleted = otherIds.every(id => {
+        const f = existingFields.find(ef => ef.relationships?.field_definition?.data?.id === String(id));
+        return f && f.attributes && f.attributes.value;
+      });
+
+      if (allOthersCompleted && otherIds.length === 3) {
+        console.log(`Person ${personId} has completed all 4 classes. Locating workflow card...`);
+        
+        // Find their specific card in the Connect Track workflow
+        const cardsRes = await fetch(`https://api.planningcenteronline.com/people/v2/workflows/${config.workflow_id}/cards?where[person_id]=${personId}`, {
+          headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
+        });
+        const cardsData = await cardsRes.json();
+        
+        const activeCard = (cardsData.data || []).find(c => c.attributes.stage !== 'complete');
+
+        if (activeCard) {
+          // Send the completion command to Planning Center
+          await fetch(`https://api.planningcenteronline.com/people/v2/workflows/${config.workflow_id}/cards/${activeCard.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${req.user.pco_access_token}` },
+            body: JSON.stringify({
+              data: {
+                type: "WorkflowCard",
+                attributes: { stage: "complete" }
+              }
+            })
+          });
+          console.log(`Successfully completed workflow card ${activeCard.id} for person ${personId}`);
+        }
+      }
+
     } else {
-      if (existingField) {
-         // Delete the field if unchecked
-         await fetch(`https://api.planningcenteronline.com/people/v2/field_data/${existingField.id}`, {
+      // If unchecked, delete the field data entirely
+      if (existingTargetField) {
+         await fetch(`https://api.planningcenteronline.com/people/v2/field_data/${existingTargetField.id}`, {
            method: 'DELETE',
            headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
          });
