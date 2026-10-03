@@ -1,3 +1,4 @@
+//backend
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { createClient } from '@supabase/supabase-js';
@@ -39,9 +40,10 @@ attendanceRouter.get('/', requireAdmin, async (req, res) => {
     });
     const cardsData = await cardsRes.json();
     
+    const cards = cardsData.data || [];
     const people = (cardsData.included || []).filter(inc => inc.type === 'Person');
 
-    // 2. Fetch the custom field data for each person
+    // 2. Fetch the custom field data for each person and map exact dates
     const attendees = await Promise.all(people.map(async (person) => {
       const fieldDataRes = await fetch(`https://api.planningcenteronline.com/people/v2/people/${person.id}/field_data`, {
         headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
@@ -49,20 +51,26 @@ attendanceRouter.get('/', requireAdmin, async (req, res) => {
       const fieldData = await fieldDataRes.json();
       const fields = fieldData.data || [];
 
-      const hasValue = (fieldId) => {
-        if (!fieldId) return false;
+      // Helper to return the exact date string or null
+      const getFieldValue = (fieldId) => {
+        if (!fieldId) return null;
         const field = fields.find(f => f.relationships?.field_definition?.data?.id === String(fieldId));
-        return field && field.attributes && field.attributes.value ? true : false;
+        return field && field.attributes && field.attributes.value ? field.attributes.value : null;
       };
+
+      // Find this person's card to determine their workflow stage
+      const personCard = cards.find(c => String(c.relationships?.person?.data?.id) === String(person.id));
+      const stage = personCard ? personCard.attributes.stage : 'unknown';
 
       return {
         id: person.id,
         name: person.attributes.name,
         avatar: person.attributes.avatar,
-        connect1: hasValue(config.connect_1_field_id),
-        connect2: hasValue(config.connect_2_field_id),
-        connect3: hasValue(config.connect_3_field_id),
-        connect4: hasValue(config.connect_4_field_id),
+        stage: stage,
+        connect1: getFieldValue(config.connect_1_field_id),
+        connect2: getFieldValue(config.connect_2_field_id),
+        connect3: getFieldValue(config.connect_3_field_id),
+        connect4: getFieldValue(config.connect_4_field_id),
       };
     }));
 
@@ -130,13 +138,11 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
         cardStatus.attempted = true;
         console.log(`Person ${personId} has completed all 4 classes. Locating workflow card...`);
         
-        // We keep the filter just in case PCO ever fixes it, but rely on the local .find() for safety
         const cardsRes = await fetch(`https://api.planningcenteronline.com/people/v2/workflows/${config.workflow_id}/cards?where[person_id]=${personId}`, {
           headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
         });
         const cardsData = await cardsRes.json();
         
-        // STRICT LOCAL FILTER: Guarantee the card actually belongs to the person we clicked
         const activeCard = (cardsData.data || []).find(c => {
           const cardOwnerId = c.relationships?.person?.data?.id;
           const isOwnerMatch = String(cardOwnerId) === String(personId);

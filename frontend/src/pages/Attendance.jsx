@@ -1,3 +1,4 @@
+//frontend
 import { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 
@@ -6,6 +7,7 @@ export function Attendance() {
   const [attendees, setAttendees] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const [activeTab, setActiveTab] = useState('active'); // 'active' or 'completed'
 
   // Fetch live Connect Track attendees
   useEffect(() => {
@@ -30,20 +32,19 @@ export function Attendance() {
   };
 
   const handleCheck = async (personId, classNumber, isChecked) => {
-    // 1. Save previous state so we can roll back if the API fails
     const previousAttendees = [...attendees];
+    const today = new Date().toISOString().split('T')[0];
 
-    // 2. Optimistic UI update
+    // Optimistic UI update: convert to date string if checked, or null if unchecked
     setAttendees(prev => prev.map(p => {
       if (p.id === personId) {
-        return { ...p, [`connect${classNumber}`]: isChecked };
+        return { ...p, [`connect${classNumber}`]: isChecked ? today : null };
       }
       return p;
     }));
 
     showToast('Syncing with Planning Center...', 'loading');
 
-    // 3. Fire the network request
     try {
       const res = await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/attendance/mark`, {
         method: 'POST',
@@ -55,26 +56,40 @@ export function Attendance() {
       const data = await res.json();
 
       if (data.success) {
-        // Handle partial failure (Field saved, but Workflow Card didn't complete)
         if (data.cardStatus?.attempted && !data.cardStatus?.success) {
           showToast('Class saved, but failed to auto-complete workflow card.', 'warning', 6000);
         } else if (data.cardStatus?.attempted && data.cardStatus?.success) {
           showToast('Class saved & workflow card completed!', 'success');
+          // Move them to the completed tab visually
+          setAttendees(prev => prev.map(p => p.id === personId ? { ...p, stage: 'completed' } : p));
         } else {
           showToast('Attendance saved.', 'success', 2500);
         }
       } else {
-        // Rollback the checkbox if the actual field data failed to save
         setAttendees(previousAttendees);
         showToast(data.error || 'Failed to save attendance.', 'error');
       }
     } catch (err) {
       console.error('Failed to save checkmark:', err);
-      // Rollback on hard network error
       setAttendees(previousAttendees);
       showToast('Network error. Please try again.', 'error');
     }
   };
+
+  // Date formatter for the completed view
+  const formatDate = (dateString) => {
+    if (!dateString) return <span className="text-slate-400 dark:text-slate-500">-</span>;
+    // Fix timezone shifting by manually parsing the parts
+    const [year, month, day] = dateString.split('-');
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  // Filter lists based on workflow stage
+  const activeAttendees = attendees.filter(a => a.stage !== 'completed' && a.stage !== 'removed');
+  const completedAttendees = attendees.filter(a => a.stage === 'completed');
+  
+  const displayedAttendees = activeTab === 'active' ? activeAttendees : completedAttendees;
 
   if (isLoading) {
     return <div className="flex h-full items-center justify-center font-bold text-slate-500 dark:text-slate-400">Loading Connect Track data...</div>;
@@ -82,7 +97,36 @@ export function Attendance() {
 
   return (
     <div className="p-8 h-full overflow-y-auto bg-slate-50 dark:bg-slate-900 transition-colors duration-200 relative">
-      <div className="max-w-4xl mx-auto bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden mt-4 transition-colors duration-200">
+      
+      {/* Header & Tabs */}
+      <div className="max-w-4xl mx-auto mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Connect Track Attendance</h1>
+        
+        <div className="flex bg-slate-200 dark:bg-slate-800 p-1 rounded-lg shadow-inner w-fit">
+          <button 
+            onClick={() => setActiveTab('active')}
+            className={`px-4 py-2 rounded-md text-sm font-semibold transition-all duration-200 ${
+              activeTab === 'active' 
+                ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' 
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            In Progress ({activeAttendees.length})
+          </button>
+          <button 
+            onClick={() => setActiveTab('completed')}
+            className={`px-4 py-2 rounded-md text-sm font-semibold transition-all duration-200 ${
+              activeTab === 'completed' 
+                ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm' 
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            Completed ({completedAttendees.length})
+          </button>
+        </div>
+      </div>
+
+      <div className="max-w-4xl mx-auto bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden transition-colors duration-200">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -96,15 +140,15 @@ export function Attendance() {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
               
-              {attendees.length === 0 ? (
+              {displayedAttendees.length === 0 ? (
                 <tr>
                   <td colSpan="5" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">
-                    No attendees currently in the Connect Track workflow.
+                    {activeTab === 'active' ? 'No attendees currently in progress.' : 'No completed attendees found.'}
                   </td>
                 </tr>
               ) : (
-                attendees.map(person => (
-                  <tr key={person.id} className="hover:bg-indigo-50/50 dark:hover:bg-indigo-900/20 transition-colors duration-150">
+                displayedAttendees.map(person => (
+                  <tr key={person.id} className="hover:bg-indigo-50/50 dark:hover:bg-slate-700/30 transition-colors duration-150">
                     <td className="p-4 font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-3">
                       {person.avatar ? (
                         <img src={person.avatar} alt={person.name} className="w-8 h-8 rounded-full border border-slate-200 dark:border-slate-600" />
@@ -116,13 +160,19 @@ export function Attendance() {
                       {person.name}
                     </td>
                     {[1, 2, 3, 4].map(num => (
-                      <td key={num} className="p-4 text-center">
-                        <input 
-                          type="checkbox" 
-                          checked={person[`connect${num}`] || false}
-                          onChange={(e) => handleCheck(person.id, num, e.target.checked)}
-                          className="w-6 h-6 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-500 dark:ring-offset-slate-800 cursor-pointer shadow-sm transition-all"
-                        />
+                      <td key={num} className="p-4 text-center text-sm text-slate-600 dark:text-slate-300">
+                        {activeTab === 'active' ? (
+                          <input 
+                            type="checkbox" 
+                            checked={!!person[`connect${num}`]}
+                            onChange={(e) => handleCheck(person.id, num, e.target.checked)}
+                            className="w-6 h-6 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-500 dark:ring-offset-slate-800 cursor-pointer shadow-sm transition-all"
+                          />
+                        ) : (
+                          <div className="whitespace-nowrap font-medium">
+                            {formatDate(person[`connect${num}`])}
+                          </div>
+                        )}
                       </td>
                     ))}
                   </tr>
