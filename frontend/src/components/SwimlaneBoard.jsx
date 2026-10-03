@@ -29,11 +29,14 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
     const saved = localStorage.getItem('pco_kanban_hideEmpty');
     return saved !== null ? JSON.parse(saved) : !interactive;
   }); 
+
+  // New state for explicitly sorting cards
+  const [cardSort, setCardSort] = useState(() => {
+    return localStorage.getItem('pco_kanban_cardSort') || 'oldest';
+  });
   
   useEffect(() => localStorage.setItem('pco_kanban_hideEmpty', JSON.stringify(hideEmpty)), [hideEmpty]);
-  
-  const [sortCol, setSortCol] = useState(null);
-  const [sortDesc, setSortDesc] = useState(true);
+  useEffect(() => localStorage.setItem('pco_kanban_cardSort', cardSort), [cardSort]);
 
   const cardsByWorkflowAndColumn = useMemo(() => {
     const map = {};
@@ -52,21 +55,10 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
 
   const sortedWorkflows = useMemo(() => {
     let wfs = workflows;
+    // We removed the confusing column sorting logic here so workflows stay strictly in PCO order
     if (hideEmpty) wfs = wfs.filter(wf => cards.some(c => c.workflow_id === wf.id && c.board_column !== 'completed'));
-    if (sortCol) {
-      wfs = [...wfs].sort((a, b) => {
-        const aCount = (cardsByWorkflowAndColumn[`${a.id}:${sortCol}`] || []).length;
-        const bCount = (cardsByWorkflowAndColumn[`${b.id}:${sortCol}`] || []).length;
-        return sortDesc ? bCount - aCount : aCount - bCount;
-      });
-    }
     return wfs;
-  }, [workflows, cards, hideEmpty, cardsByWorkflowAndColumn, sortCol, sortDesc]);
-
-  const handleSort = (colKey) => {
-    if (sortCol === colKey) setSortDesc(!sortDesc); 
-    else { setSortCol(colKey); setSortDesc(true); }
-  };
+  }, [workflows, cards, hideEmpty]);
 
   return (
     <div className="w-full h-full min-h-screen overflow-y-auto bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
@@ -110,11 +102,24 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
 
       {interactive && (
         <div className="flex items-center justify-between p-4 border-b shadow-sm transition-colors bg-white dark:bg-slate-900 border-gray-300 dark:border-slate-700 text-gray-800 dark:text-slate-200">
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-8">
             <label className="flex items-center gap-2 cursor-pointer text-sm font-semibold select-none hover:text-indigo-500 transition-colors">
               <input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500 bg-transparent border-gray-400" />
               Hide Empty Workflows
             </label>
+
+            <div className="flex items-center gap-2 border-l border-gray-300 dark:border-slate-700 pl-8">
+              <span className="text-sm font-semibold text-gray-500 dark:text-slate-400">Sort Cards:</span>
+              <select 
+                value={cardSort} 
+                onChange={(e) => setCardSort(e.target.value)} 
+                className="text-sm border-gray-300 rounded-md focus:ring-indigo-500 py-1 pl-2 pr-8 bg-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200"
+              >
+                <option value="oldest">Oldest First</option>
+                <option value="newest">Newest First</option>
+                <option value="alphabetical">A-Z Name</option>
+              </select>
+            </div>
           </div>
           
           <div className="flex items-center gap-4">
@@ -151,13 +156,9 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
         {COLUMNS.map((col) => (
           <div
             key={col.key}
-            onClick={() => handleSort(col.key)}
-            className="px-4 py-3 font-bold text-sm uppercase tracking-wide border-b-2 border-gray-300 dark:border-slate-700 cursor-pointer select-none group transition-colors hover:bg-indigo-50/10 flex items-center justify-between bg-gray-200 dark:bg-slate-900 text-gray-700 dark:text-slate-300"
+            className="px-4 py-3 font-bold text-sm uppercase tracking-wide border-b-2 border-gray-300 dark:border-slate-700 bg-gray-200 dark:bg-slate-900 text-gray-700 dark:text-slate-300"
           >
-            <span>{col.label}</span>
-            <span className={`text-[10px] ${sortCol === col.key ? 'opacity-100 text-indigo-500' : 'opacity-0 group-hover:opacity-30'}`}>
-              {sortCol === col.key ? (sortDesc ? '▼' : '▲') : '▼'}
-            </span>
+            {col.label}
           </div>
         ))}
       </div>
@@ -187,7 +188,7 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
                 )}
               </div>
               {COLUMNS.map((col) => (
-                <SwimlaneCell key={col.key} cardsList={cardsByWorkflowAndColumn[`${workflow.id}:${col.key}`] ?? []} interactive={interactive} rowBg={rowBg} steps={steps} workflowPcoId={workflow.pco_id} />
+                <SwimlaneCell key={col.key} cardsList={cardsByWorkflowAndColumn[`${workflow.id}:${col.key}`] ?? []} interactive={interactive} rowBg={rowBg} steps={steps} workflowPcoId={workflow.pco_id} cardSort={cardSort} />
               ))}
             </div>
           );
@@ -197,19 +198,30 @@ export function SwimlaneBoard({ workflows, steps, cards, interactive = false }) 
   );
 }
 
-function SwimlaneCell({ cardsList, interactive, rowBg, steps, workflowPcoId }) {
+function SwimlaneCell({ cardsList, interactive, rowBg, steps, workflowPcoId, cardSort }) {
   const sortedCards = useMemo(() => {
     return [...cardsList].sort((a, b) => {
       const aStatus = getCardStatus(a);
       const bStatus = getCardStatus(b);
       
+      // Always bubble overdue cards to the top
       if (aStatus.isOverdue !== bStatus.isOverdue) return bStatus.isOverdue ? 1 : -1; 
       
-      const aTime = a.pco_created_at ? new Date(a.pco_created_at).getTime() : 0;
-      const bTime = b.pco_created_at ? new Date(b.pco_created_at).getTime() : 0;
-      return aTime - bTime; 
+      // Apply user's chosen sort order
+      if (cardSort === 'alphabetical') {
+        return (a.person_name || '').localeCompare(b.person_name || '');
+      } else if (cardSort === 'newest') {
+        const aTime = a.pco_created_at ? new Date(a.pco_created_at).getTime() : 0;
+        const bTime = b.pco_created_at ? new Date(b.pco_created_at).getTime() : 0;
+        return bTime - aTime;
+      } else {
+        // Default to oldest
+        const aTime = a.pco_created_at ? new Date(a.pco_created_at).getTime() : 0;
+        const bTime = b.pco_created_at ? new Date(b.pco_created_at).getTime() : 0;
+        return aTime - bTime; 
+      }
     });
-  }, [cardsList]);
+  }, [cardsList, cardSort]);
 
   return (
     <div className={`px-3 py-4 border-r border-gray-200 dark:border-slate-700 flex flex-col gap-4 ${rowBg}`}>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getCardStatus } from './SwimlaneBoard'; 
 import { SettingsModal } from './SettingsModal';
@@ -7,6 +7,11 @@ export function SpecificWorkflowBoard({ workflows, steps, cards, workflowPcoId }
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   
+  const [cardSort, setCardSort] = useState(() => {
+    return localStorage.getItem('pco_kanban_cardSort') || 'oldest';
+  });
+  useEffect(() => localStorage.setItem('pco_kanban_cardSort', cardSort), [cardSort]);
+
   const workflow = useMemo(() => workflows.find((w) => String(w.pco_id) === String(workflowPcoId)), [workflows, workflowPcoId]);
 
   const activeSteps = useMemo(() => {
@@ -86,6 +91,19 @@ export function SpecificWorkflowBoard({ workflows, steps, cards, workflowPcoId }
         </div>
         
         <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2 border-r border-gray-300 dark:border-slate-700 pr-6">
+            <span className="text-sm font-semibold text-gray-500 dark:text-slate-400">Sort Cards:</span>
+            <select 
+              value={cardSort} 
+              onChange={(e) => setCardSort(e.target.value)} 
+              className="text-sm border-gray-300 rounded-md focus:ring-indigo-500 py-1 pl-2 pr-8 bg-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200"
+            >
+              <option value="oldest">Oldest First</option>
+              <option value="newest">Newest First</option>
+              <option value="alphabetical">A-Z Name</option>
+            </select>
+          </div>
+
           <button onClick={() => setIsDrawerOpen(true)} className="flex items-center gap-2 px-4 py-1.5 bg-emerald-100 text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400 dark:hover:bg-emerald-900/70 border border-emerald-200 dark:border-emerald-800 rounded-full text-sm font-bold shadow-sm transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
             {completedCards.length} Completed
@@ -105,7 +123,7 @@ export function SpecificWorkflowBoard({ workflows, steps, cards, workflowPcoId }
                 {step.name}
               </div>
               <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-4 custom-scrollbar">
-                <SpecificBoardCell cardsList={activeCardsByStep[step.id] ?? []} workflowPcoId={workflow.pco_id} steps={steps} />
+                <SpecificBoardCell cardsList={activeCardsByStep[step.id] ?? []} workflowPcoId={workflow.pco_id} steps={steps} cardSort={cardSort} />
               </div>
             </div>
           ))}
@@ -115,7 +133,7 @@ export function SpecificWorkflowBoard({ workflows, steps, cards, workflowPcoId }
   );
 }
 
-function SpecificBoardCell({ cardsList, workflowPcoId, steps }) {
+function SpecificBoardCell({ cardsList, workflowPcoId, steps, cardSort }) {
   const sortedCards = useMemo(() => {
     return [...cardsList].sort((a, b) => {
       const aStatus = getCardStatus(a);
@@ -123,11 +141,19 @@ function SpecificBoardCell({ cardsList, workflowPcoId, steps }) {
       
       if (aStatus.isOverdue !== bStatus.isOverdue) return bStatus.isOverdue ? 1 : -1; 
       
-      const aTime = a.pco_created_at ? new Date(a.pco_created_at).getTime() : 0;
-      const bTime = b.pco_created_at ? new Date(b.pco_created_at).getTime() : 0;
-      return aTime - bTime; 
+      if (cardSort === 'alphabetical') {
+        return (a.person_name || '').localeCompare(b.person_name || '');
+      } else if (cardSort === 'newest') {
+        const aTime = a.pco_created_at ? new Date(a.pco_created_at).getTime() : 0;
+        const bTime = b.pco_created_at ? new Date(b.pco_created_at).getTime() : 0;
+        return bTime - aTime;
+      } else {
+        const aTime = a.pco_created_at ? new Date(a.pco_created_at).getTime() : 0;
+        const bTime = b.pco_created_at ? new Date(b.pco_created_at).getTime() : 0;
+        return aTime - bTime; 
+      }
     });
-  }, [cardsList]);
+  }, [cardsList, cardSort]);
 
   if (sortedCards.length === 0) return <div className="h-full w-full flex items-center justify-center p-6 border-2 border-dashed border-gray-300 dark:border-slate-700 rounded-lg text-gray-400 dark:text-slate-500 text-sm font-semibold text-center opacity-50">Drop cards here</div>;
 
