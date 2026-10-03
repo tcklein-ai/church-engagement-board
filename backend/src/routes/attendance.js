@@ -130,32 +130,23 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
         cardStatus.attempted = true;
         console.log(`Person ${personId} has completed all 4 classes. Locating workflow card...`);
         
+        // We keep the filter just in case PCO ever fixes it, but rely on the local .find() for safety
         const cardsRes = await fetch(`https://api.planningcenteronline.com/people/v2/workflows/${config.workflow_id}/cards?where[person_id]=${personId}`, {
           headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
         });
         const cardsData = await cardsRes.json();
         
-        const activeCard = (cardsData.data || []).find(c => c.attributes.stage !== 'completed');
+        // STRICT LOCAL FILTER: Guarantee the card actually belongs to the person we clicked
+        const activeCard = (cardsData.data || []).find(c => {
+          const cardOwnerId = c.relationships?.person?.data?.id;
+          const isOwnerMatch = String(cardOwnerId) === String(personId);
+          const isNotCompleted = c.attributes?.stage !== 'completed';
+          return isOwnerMatch && isNotCompleted;
+        });
 
         if (activeCard) {
-          // Force extract the person ID directly from the card relationship to guarantee a match
-          const cardPersonId = activeCard.relationships?.person?.data?.id || personId;
+          console.log(`Found active card ${activeCard.id} belonging to person ${personId}. Initiating promotion loop...`);
           
-          console.log(`Found active card ${activeCard.id} belonging to person ${cardPersonId}.`);
-          
-          // ---- PCO AI SANITY CHECK ----
-          console.log(`[SANITY CHECK] Testing GET: https://api.planningcenteronline.com/people/v2/people/${cardPersonId}/workflow_cards/${activeCard.id}`);
-          const sanityRes = await fetch(`https://api.planningcenteronline.com/people/v2/people/${cardPersonId}/workflow_cards/${activeCard.id}`, {
-            headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
-          });
-          
-          if (!sanityRes.ok) {
-            console.error(`[SANITY CHECK FAILED] PCO returned ${sanityRes.status}. The AI's endpoint is broken or hallucinated.`);
-          } else {
-            console.log(`[SANITY CHECK PASSED] The card is reachable on this route.`);
-          }
-          // -----------------------------
-
           let isCompleted = false;
           let attempts = 0;
           const maxAttempts = 10; 
@@ -163,9 +154,7 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
           while (!isCompleted && attempts < maxAttempts) {
             attempts++;
             
-            console.log(`[PROMOTE ATTEMPT ${attempts}] POST https://api.planningcenteronline.com/people/v2/people/${cardPersonId}/workflow_cards/${activeCard.id}/promote`);
-            
-            const promoteRes = await fetch(`https://api.planningcenteronline.com/people/v2/people/${cardPersonId}/workflow_cards/${activeCard.id}/promote`, {
+            const promoteRes = await fetch(`https://api.planningcenteronline.com/people/v2/people/${personId}/workflow_cards/${activeCard.id}/promote`, {
               method: 'POST',
               headers: { 
                 'Authorization': `Bearer ${req.user.pco_access_token}`,
