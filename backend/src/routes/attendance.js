@@ -49,7 +49,6 @@ attendanceRouter.get('/', requireAdmin, async (req, res) => {
       const fieldData = await fieldDataRes.json();
       const fields = fieldData.data || [];
 
-      // Helper to determine if a field has been filled out
       const hasValue = (fieldId) => {
         if (!fieldId) return false;
         const field = fields.find(f => f.relationships?.field_definition?.data?.id === String(fieldId));
@@ -84,7 +83,6 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
 
     if (!targetFieldDefId) return res.status(400).json({ error: 'Custom field not configured' });
 
-    // See if the field already exists for this person, and grab all their other fields simultaneously
     const existingRes = await fetch(`https://api.planningcenteronline.com/people/v2/people/${personId}/field_data`, {
       headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
     });
@@ -93,13 +91,11 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
     
     const existingTargetField = existingFields.find(f => f.relationships?.field_definition?.data?.id === String(targetFieldDefId));
 
-    const today = new Date().toISOString().split('T')[0]; // Clean YYYY-MM-DD format
+    const today = new Date().toISOString().split('T')[0]; 
     
-    // Track the success of the workflow card step specifically
     let cardStatus = { attempted: false, success: false, error: null };
 
     if (isChecked) {
-      // 1. Update or Create the specific Connect Class field
       if (existingTargetField) {
         await fetch(`https://api.planningcenteronline.com/people/v2/field_data/${existingTargetField.id}`, {
           method: 'PATCH',
@@ -116,7 +112,6 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
         });
       }
 
-      // 2. THE AUTO-COMPLETE LOGIC
       const requiredIds = [
         config.connect_1_field_id,
         config.connect_2_field_id,
@@ -124,10 +119,8 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
         config.connect_4_field_id
       ];
 
-      // Filter out the class we JUST checked, so we are only looking at the other 3
       const otherIds = requiredIds.filter(id => id && String(id) !== String(targetFieldDefId));
 
-      // Verify that every single one of those other 3 fields has a value in PCO
       const allOthersCompleted = otherIds.every(id => {
         const f = existingFields.find(ef => ef.relationships?.field_definition?.data?.id === String(id));
         return f && f.attributes && f.attributes.value;
@@ -137,7 +130,6 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
         cardStatus.attempted = true;
         console.log(`Person ${personId} has completed all 4 classes. Locating workflow card...`);
         
-        // Find their specific card in the Connect Track workflow
         const cardsRes = await fetch(`https://api.planningcenteronline.com/people/v2/workflows/${config.workflow_id}/cards?where[person_id]=${personId}`, {
           headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
         });
@@ -146,17 +138,34 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
         const activeCard = (cardsData.data || []).find(c => c.attributes.stage !== 'completed');
 
         if (activeCard) {
-          console.log(`Found active card ${activeCard.id}. Initiating promotion loop...`);
+          // Force extract the person ID directly from the card relationship to guarantee a match
+          const cardPersonId = activeCard.relationships?.person?.data?.id || personId;
           
+          console.log(`Found active card ${activeCard.id} belonging to person ${cardPersonId}.`);
+          
+          // ---- PCO AI SANITY CHECK ----
+          console.log(`[SANITY CHECK] Testing GET: https://api.planningcenteronline.com/people/v2/people/${cardPersonId}/workflow_cards/${activeCard.id}`);
+          const sanityRes = await fetch(`https://api.planningcenteronline.com/people/v2/people/${cardPersonId}/workflow_cards/${activeCard.id}`, {
+            headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
+          });
+          
+          if (!sanityRes.ok) {
+            console.error(`[SANITY CHECK FAILED] PCO returned ${sanityRes.status}. The AI's endpoint is broken or hallucinated.`);
+          } else {
+            console.log(`[SANITY CHECK PASSED] The card is reachable on this route.`);
+          }
+          // -----------------------------
+
           let isCompleted = false;
           let attempts = 0;
-          const maxAttempts = 10; // Safety catch to prevent infinite loops
+          const maxAttempts = 10; 
 
           while (!isCompleted && attempts < maxAttempts) {
             attempts++;
             
-            // Send the POST request to the action endpoint
-            const promoteRes = await fetch(`https://api.planningcenteronline.com/people/v2/people/${personId}/workflow_cards/${activeCard.id}/promote`, {
+            console.log(`[PROMOTE ATTEMPT ${attempts}] POST https://api.planningcenteronline.com/people/v2/people/${cardPersonId}/workflow_cards/${activeCard.id}/promote`);
+            
+            const promoteRes = await fetch(`https://api.planningcenteronline.com/people/v2/people/${cardPersonId}/workflow_cards/${activeCard.id}/promote`, {
               method: 'POST',
               headers: { 
                 'Authorization': `Bearer ${req.user.pco_access_token}`,
@@ -166,17 +175,15 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
 
             if (!promoteRes.ok) {
               cardStatus.error = await promoteRes.text();
-              console.error(`PCO rejected the promote command for card ${activeCard.id} on attempt ${attempts}:`, cardStatus.error);
-              break; // Break the loop if the API throws an error
+              console.error(`[PROMOTE FAILED] PCO rejected the promote command:`, cardStatus.error);
+              break; 
             }
 
-            // Fetch the card again to check its current stage
             const checkRes = await fetch(`https://api.planningcenteronline.com/people/v2/workflows/${config.workflow_id}/cards/${activeCard.id}`, {
               headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
             });
 
             if (!checkRes.ok) {
-              // If PCO returns a 404 because the completed card is hidden from the active endpoint, assume success
               isCompleted = true;
               cardStatus.success = true;
               break;
@@ -198,13 +205,11 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
           }
 
         } else {
-          // If no active card is found, we consider it a success (they are already completed or removed)
           cardStatus.success = true; 
         }
       }
 
     } else {
-      // If unchecked, delete the field data entirely
       if (existingTargetField) {
          await fetch(`https://api.planningcenteronline.com/people/v2/field_data/${existingTargetField.id}`, {
            method: 'DELETE',
