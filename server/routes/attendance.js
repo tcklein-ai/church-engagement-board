@@ -10,14 +10,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Middleware to ensure they are authenticated and authorized
-const requireAdmin = (req, res, next) => {
+// Middleware to ensure they are authenticated (PCO handles authorization)
+const requireAuth = (req, res, next) => {
   const token = req.cookies.pco_auth;
   if (!token) return res.status(401).json({ error: 'Not authenticated' });
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (!decoded.isAppAdmin) return res.status(403).json({ error: 'Access denied. App Admin required.' });
     req.user = decoded;
     next();
   } catch (err) {
@@ -26,7 +25,7 @@ const requireAdmin = (req, res, next) => {
 };
 
 // GET: Fetch all attendees in the workflow and their field statuses
-attendanceRouter.get('/', requireAdmin, async (req, res) => {
+attendanceRouter.get('/', requireAuth, async (req, res) => {
   try {
     const { data: config, error } = await supabase.from('pc_app_config').select('*').eq('id', 1).single();
     
@@ -82,7 +81,7 @@ attendanceRouter.get('/', requireAdmin, async (req, res) => {
 });
 
 // POST: Write a checkbox interaction back to Planning Center and Auto-Complete
-attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
+attendanceRouter.post('/mark', requireAuth, async (req, res) => {
   try {
     const { personId, classNumber, isChecked } = req.body;
     
@@ -94,6 +93,11 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
     const existingRes = await fetch(`https://api.planningcenteronline.com/people/v2/people/${personId}/field_data`, {
       headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
     });
+    
+    if (existingRes.status === 403) {
+       return res.status(403).json({ error: 'PCO View-Only Access: Edit permissions required to mark attendance.' });
+    }
+    
     const existingData = await existingRes.json();
     const existingFields = existingData.data || [];
     
@@ -104,20 +108,27 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
     let cardStatus = { attempted: false, success: false, error: null };
 
     if (isChecked) {
+      let updateRes;
       if (existingTargetField) {
-        await fetch(`https://api.planningcenteronline.com/people/v2/field_data/${existingTargetField.id}`, {
+        updateRes = await fetch(`https://api.planningcenteronline.com/people/v2/field_data/${existingTargetField.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${req.user.pco_access_token}` },
           body: JSON.stringify({ data: { type: "FieldData", attributes: { value: today } } })
         });
       } else {
-        await fetch(`https://api.planningcenteronline.com/people/v2/people/${personId}/field_data`, {
+        updateRes = await fetch(`https://api.planningcenteronline.com/people/v2/people/${personId}/field_data`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${req.user.pco_access_token}` },
           body: JSON.stringify({
             data: { type: "FieldData", attributes: { value: today, field_definition_id: targetFieldDefId } }
           })
         });
+      }
+
+      if (updateRes.status === 403) {
+        return res.status(403).json({ error: 'PCO Access Denied: You do not have permission to edit this person.' });
+      } else if (!updateRes.ok) {
+        return res.status(updateRes.status).json({ error: 'Planning Center rejected the update.' });
       }
 
       const requiredIds = [
@@ -206,10 +217,16 @@ attendanceRouter.post('/mark', requireAdmin, async (req, res) => {
 
     } else {
       if (existingTargetField) {
-         await fetch(`https://api.planningcenteronline.com/people/v2/field_data/${existingTargetField.id}`, {
+         const deleteRes = await fetch(`https://api.planningcenteronline.com/people/v2/field_data/${existingTargetField.id}`, {
            method: 'DELETE',
            headers: { Authorization: `Bearer ${req.user.pco_access_token}` }
          });
+         
+         if (deleteRes.status === 403) {
+           return res.status(403).json({ error: 'PCO Access Denied: You do not have permission to remove attendance.' });
+         } else if (!deleteRes.ok) {
+           return res.status(deleteRes.status).json({ error: 'Planning Center rejected the update.' });
+         }
       }
     }
 
