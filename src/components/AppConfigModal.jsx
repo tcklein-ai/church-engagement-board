@@ -1,3 +1,4 @@
+//frontend
 import { useState, useEffect } from 'react';
 
 export function AppConfigModal({ isOpen, onClose }) {
@@ -6,7 +7,11 @@ export function AppConfigModal({ isOpen, onClose }) {
     connect_1_field_id: '',
     connect_2_field_id: '',
     connect_3_field_id: '',
-    connect_4_field_id: ''
+    connect_4_field_id: '',
+    connect_5_field_id: '',
+    connect_6_field_id: '',
+    connect_7_field_id: '',
+    connect_8_field_id: ''
   });
   
   const [workflows, setWorkflows] = useState([]);
@@ -74,7 +79,7 @@ export function AppConfigModal({ isOpen, onClose }) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
           {isLoading ? (
             <div className="flex justify-center items-center py-12 text-slate-500 font-bold">Connecting to Planning Center API...</div>
           ) : (
@@ -99,7 +104,7 @@ export function AppConfigModal({ isOpen, onClose }) {
               <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
                 <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-4 border-b border-slate-200 dark:border-slate-700 pb-2">Connect Track Milestones</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  {[1, 2, 3, 4].map(num => (
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map(num => (
                     <div key={num}>
                       <label className={labelClasses}>Connect {num} Field</label>
                       <select 
