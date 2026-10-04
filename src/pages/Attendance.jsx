@@ -76,12 +76,27 @@ export function Attendance() {
     }
   };
 
-  // Date formatter for the completed view
+  // Date formatter for both views
   const formatDate = (dateString) => {
     if (!dateString) return <span className="text-slate-400 dark:text-slate-500">-</span>;
-    // Fix timezone shifting by manually parsing the parts
-    const [year, month, day] = dateString.split('-');
-    const date = new Date(year, month - 1, day);
+    
+    let date;
+    
+    // Check if it is a standard ISO date with dashes (e.g., 2026-10-04)
+    if (dateString.includes('-')) {
+      // Fix timezone shifting by manually parsing the parts
+      const [year, month, day] = dateString.split('-');
+      date = new Date(year, month - 1, day);
+    } else {
+      // Fallback for PCO UI entered dates (e.g., 09/27/2026)
+      date = new Date(dateString);
+    }
+
+    // Safety check just in case PCO passes total gibberish
+    if (isNaN(date.getTime())) {
+      return <span className="text-rose-500 dark:text-rose-400 font-normal">Invalid Format</span>;
+    }
+
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
@@ -127,7 +142,7 @@ export function Attendance() {
       </div>
 
       <div className="max-w-4xl mx-auto bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden transition-colors duration-200">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-100 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 text-sm uppercase tracking-wider text-slate-600 dark:text-slate-400 font-bold transition-colors duration-200">
@@ -161,12 +176,19 @@ export function Attendance() {
                     {[1, 2, 3, 4, 5, 6, 7, 8].map(num => (
                       <td key={`check-${num}`} className="p-4 text-center text-sm text-slate-600 dark:text-slate-300">
                         {activeTab === 'active' ? (
-                          <input 
-                            type="checkbox" 
-                            checked={!!person[`connect${num}`]}
-                            onChange={(e) => handleCheck(person.id, num, e.target.checked)}
-                            className="w-6 h-6 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-500 dark:ring-offset-slate-800 cursor-pointer shadow-sm transition-all"
-                          />
+                          <div className="flex flex-col items-center justify-center gap-1.5 h-[48px]">
+                            <input 
+                              type="checkbox" 
+                              checked={!!person[`connect${num}`]}
+                              onChange={(e) => handleCheck(person.id, num, e.target.checked)}
+                              className="w-6 h-6 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-500 dark:ring-offset-slate-800 cursor-pointer shadow-sm transition-all"
+                            />
+                            {person[`connect${num}`] && (
+                              <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap leading-none">
+                                {formatDate(person[`connect${num}`])}
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <div className="whitespace-nowrap font-medium text-xs">
                             {formatDate(person[`connect${num}`])}
