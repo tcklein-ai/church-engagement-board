@@ -35,7 +35,17 @@ configRouter.get('/', requireAdmin, async (req, res) => {
 
 configRouter.post('/', requireAdmin, async (req, res) => {
   try {
-    const { workflow_id, connect_1_field_id, connect_2_field_id, connect_3_field_id, connect_4_field_id } = req.body;
+    const { 
+      workflow_id, 
+      connect_1_field_id, 
+      connect_2_field_id, 
+      connect_3_field_id, 
+      connect_4_field_id,
+      connect_5_field_id,
+      connect_6_field_id,
+      connect_7_field_id,
+      connect_8_field_id
+    } = req.body;
     
     const { error } = await supabase
       .from('pc_app_config')
@@ -45,6 +55,10 @@ configRouter.post('/', requireAdmin, async (req, res) => {
         connect_2_field_id,
         connect_3_field_id,
         connect_4_field_id,
+        connect_5_field_id,
+        connect_6_field_id,
+        connect_7_field_id,
+        connect_8_field_id,
         updated_at: new Date()
       })
       .eq('id', 1);
