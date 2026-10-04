@@ -70,6 +70,10 @@ attendanceRouter.get('/', requireAuth, async (req, res) => {
         connect2: getFieldValue(config.connect_2_field_id),
         connect3: getFieldValue(config.connect_3_field_id),
         connect4: getFieldValue(config.connect_4_field_id),
+        connect5: getFieldValue(config.connect_5_field_id),
+        connect6: getFieldValue(config.connect_6_field_id),
+        connect7: getFieldValue(config.connect_7_field_id),
+        connect8: getFieldValue(config.connect_8_field_id),
       };
     }));
 
@@ -135,7 +139,11 @@ attendanceRouter.post('/mark', requireAuth, async (req, res) => {
         config.connect_1_field_id,
         config.connect_2_field_id,
         config.connect_3_field_id,
-        config.connect_4_field_id
+        config.connect_4_field_id,
+        config.connect_5_field_id,
+        config.connect_6_field_id,
+        config.connect_7_field_id,
+        config.connect_8_field_id
       ];
 
       const otherIds = requiredIds.filter(id => id && String(id) !== String(targetFieldDefId));
@@ -145,9 +153,10 @@ attendanceRouter.post('/mark', requireAuth, async (req, res) => {
         return f && f.attributes && f.attributes.value;
       });
 
-      if (allOthersCompleted && otherIds.length === 3) {
+      // Require 7 OTHER classes to be completed before auto-promoting this one
+      if (allOthersCompleted && otherIds.length === 7) {
         cardStatus.attempted = true;
-        console.log(`Person ${personId} has completed all 4 classes. Locating workflow card...`);
+        console.log(`Person ${personId} has completed all 8 classes. Locating workflow card...`);
         
         const cardsRes = await fetch(`https://api.planningcenteronline.com/people/v2/workflows/${config.workflow_id}/cards?where[person_id]=${personId}`, {
           headers: { Authorization: `Bearer ${req.user.pco_access_token}` }

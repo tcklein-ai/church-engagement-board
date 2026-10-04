@@ -131,36 +131,35 @@ export function Attendance() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-100 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 text-sm uppercase tracking-wider text-slate-600 dark:text-slate-400 font-bold transition-colors duration-200">
-                <th className="p-4 w-full">Name</th>
-                <th className="p-4 text-center whitespace-nowrap">Connect 1</th>
-                <th className="p-4 text-center whitespace-nowrap">Connect 2</th>
-                <th className="p-4 text-center whitespace-nowrap">Connect 3</th>
-                <th className="p-4 text-center whitespace-nowrap">Connect 4</th>
+                <th className="p-4 min-w-[200px]">Name</th>
+                {[1, 2, 3, 4, 5, 6, 7, 8].map(num => (
+                  <th key={`header-${num}`} className="p-4 text-center whitespace-nowrap">Connect {num}</th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
               
               {displayedAttendees.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">
+                  <td colSpan="9" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">
                     {activeTab === 'active' ? 'No attendees currently in progress.' : 'No completed attendees found.'}
                   </td>
                 </tr>
               ) : (
                 displayedAttendees.map(person => (
                   <tr key={person.id} className="hover:bg-indigo-50/50 dark:hover:bg-slate-700/30 transition-colors duration-150">
-                    <td className="p-4 font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-3">
+                    <td className="p-4 font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-3 min-w-[200px]">
                       {person.avatar ? (
-                        <img src={person.avatar} alt={person.name} className="w-8 h-8 rounded-full border border-slate-200 dark:border-slate-600" />
+                        <img src={person.avatar} alt={person.name} className="w-8 h-8 rounded-full border border-slate-200 dark:border-slate-600 shrink-0" />
                       ) : (
                         <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 shrink-0 flex items-center justify-center text-xs text-slate-500 dark:text-slate-400">
                           {person.name.charAt(0)}
                         </div>
                       )}
-                      {person.name}
+                      <span className="truncate">{person.name}</span>
                     </td>
-                    {[1, 2, 3, 4].map(num => (
-                      <td key={num} className="p-4 text-center text-sm text-slate-600 dark:text-slate-300">
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map(num => (
+                      <td key={`check-${num}`} className="p-4 text-center text-sm text-slate-600 dark:text-slate-300">
                         {activeTab === 'active' ? (
                           <input 
                             type="checkbox" 
@@ -169,7 +168,7 @@ export function Attendance() {
                             className="w-6 h-6 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-500 dark:ring-offset-slate-800 cursor-pointer shadow-sm transition-all"
                           />
                         ) : (
-                          <div className="whitespace-nowrap font-medium">
+                          <div className="whitespace-nowrap font-medium text-xs">
                             {formatDate(person[`connect${num}`])}
                           </div>
                         )}
